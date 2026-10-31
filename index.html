@@ -559,7 +559,7 @@ body.dlg #c {
 /**
  * Le shader du jeu. Il agit APRÈS le dessin de la scène 3D et ne change ni les formes, ni les
  * couleurs de base, ni l’interface. Il se compose de quatre effets indépendants, chacun réglé par
- * une force (0 = effet coupé ; avec tout à 0, l’image est exactement celle d’origine) :
+ * une force (0 = effet coupé ; tout à 0 et sans cible, l’image est celle d’origine) :
  *   · ao       ombres d’ambiance : coins, dessous de meubles et jonctions mur-plafond
  *              s’assombrissent légèrement (occlusion ambiante, calculée sur une image de profondeur) ;
  *   · bloom    halo : les points très lumineux (ampoules, fenêtres, écrans) diffusent une lueur douce ;
@@ -568,9 +568,11 @@ body.dlg #c {
  *   · outline  contours : un trait d’encre souligne les silhouettes et les arêtes des objets.
  * Le rendu est fixe, sans réglage dans l’interface : SHADER.presets en garde trois versions,
  * chacune complète. « complet » (les quatre effets) sert sur ordinateur ; « leger » (halo et
- * étalonnage seulement, sans image de profondeur) sert sur tactile et prend le relais quand
+ * étalonnage) sert sur tactile et prend le relais quand
  * l’ordinateur peine (auto) ; « aucun » rend l’image d’origine, pour comparer. shaderSet(nom)
  * en applique un, sans garder de réglage du précédent ; il se tape aussi dans la console.
+ * Le contour interactif cyan (highlight) reste indépendant des trois préréglages : la visée
+ * active DT/HD même en leger ou aucun. Il ne remplit ni ne recolore les matériaux de la cible.
  * SHADER.rooms ajuste une salle à part : dans l’herbe, les contours sont coupés, car les arêtes
  * des collines traverseraient les touffes.
  *
@@ -584,6 +586,8 @@ const SHADER = {
   bloom: { strength: 0, threshold: 0.5 },
   grade: { strength: 0 },
   outline: { strength: 0, thickness: 1.2, edge: 0.03, color: [0.11, 0.07, 0.04] },
+  // Interaction : contour cyan extérieur, sans remplissage et occulté par le décor.
+  highlight: { width: 2.2, bias: 0.02, color: [0.2, 0.8, 1] },
   presets: {
     aucun: {
       ao: { mix: 0, strength: 0.45, radius: 0.75 },
@@ -746,10 +750,22 @@ void main(){
  */
 SHADER.glsl.compose = `
 varying vec2 v;
-uniform sampler2D t, ao, bl, ol;
-uniform float tm, sa, sb, sg, so;
+uniform sampler2D t, ao, bl, ol, dt, hd;
+uniform float tm, sa, sb, sg, so, sh, hw, hb;
 uniform vec2 res, dpx;
-uniform vec3 ink;
+uniform vec3 ink, hcol;
+${SHADER.glsl.depth}
+float hoverEdge( vec2 u, vec2 px ){
+  // Le centre doit être à l’extérieur : ni remplissage, ni traits dans les détails du modèle.
+  if ( dp( hd, u ) < .9999 ) return 0.;
+  float z = vz( dp( dt, u ) ), edge = 0.;
+  for ( int x = -1; x <= 1; x++ ) for ( int y = -1; y <= 1; y++ ) {
+    vec2 p = u + vec2( float( x ), float( y ) ) * px * hw;
+    float d = dp( hd, p );
+    if ( d < .9999 ) edge = max( edge, step( z - hb, vz( d ) ) );
+  }
+  return edge;
+}
 void main(){
   vec2 q = 1. / res;
   vec3 c = texture2D( t, v ).rgb, n1 = texture2D( t, v + vec2( q.x, 0. ) ).rgb, n2 = texture2D( t, v - vec2( q.x, 0. ) ).rgb, n3 = texture2D( t, v + vec2( 0., q.y ) ).rgb, n4 = texture2D( t, v - vec2( 0., q.y ) ).rgb, lw = vec3( .299, .587, .114 );
@@ -776,6 +792,7 @@ void main(){
     float ln = ( texture2D( ol, v + h ).r + texture2D( ol, v - h ).r + texture2D( ol, v + vec2( h.x, -h.y ) ).r + texture2D( ol, v + vec2( -h.x, h.y ) ).r ) * .25;
     c = mix( c, mix( ink, c * .3, .4 ), smoothstep( .1, .8, ln ) * so );
   }
+  if ( sh > .5 ) c = mix( c, hcol, hoverEdge( v, q ) * .95 );
   gl_FragColor = vec4( clamp( c, 0., 1. ), 1. );
 }
 `;
@@ -1017,6 +1034,7 @@ const UT = { value: 0 },
     magFilter: THREE.NearestFilter,
     depthBuffer: true,
   }),
+  HD = mkT({ minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true }),
   OL = mkT(),
   AA = mkT(),
   AB = mkT(),
@@ -1033,6 +1051,11 @@ const UT = { value: 0 },
     ol: { value: OL.texture },
     bl: { value: BA.texture },
     dt: { value: DT.texture },
+    hd: { value: HD.texture },
+    sh: { value: 0 },
+    hw: { value: 2 },
+    hb: { value: 0.02 },
+    hcol: { value: new THREE.Color() },
     tm: UT,
     sa: { value: 0 },
     sb: { value: 0 },
@@ -1129,8 +1152,8 @@ function tsz(T, f, w, h) {
 /**
  * Adapte la taille réelle de l’image à la fenêtre, à la densité de pixels et au
  * coefficient RS. Met aussi à jour la caméra : sans cela, l’image serait étirée après un
- * redimensionnement. Les cibles du shader suivent : profondeur en pleine résolution quand les
- * contours sont actifs (sinon moitié), ombres d’ambiance à la moitié, halo au quart.
+ * redimensionnement. Les cibles du shader suivent : profondeur DT et silhouette HD en pleine
+ * résolution pour un contour interactif précis, encre OL aussi ; ombres à la moitié, halo au quart.
  */
 function rs() {
   const k = Math.min(devicePixelRatio || 1, TOUCH ? 2 : 1.5) * RS,
@@ -1141,7 +1164,8 @@ function rs() {
   shU.res.value.set(w, h);
   cam.aspect = innerWidth / innerHeight;
   cam.updateProjectionMatrix();
-  shU.dpx.value.fromArray(tsz(DT, SHADER.outline.strength > 0 ? 1 : 0.5, w, h));
+  shU.dpx.value.fromArray(tsz(DT, 1, w, h));
+  tsz(HD, 1, w, h);
   tsz(OL, 1, w, h);
   const [ax, ay] = tsz(AA, 0.5, w, h),
     [bx, by] = tsz(BA, 0.25, w, h);
@@ -1183,8 +1207,9 @@ function shTag(g) {
 
 /**
  * Applique un préréglage complet de SHADER.presets (« aucun », « complet » ou « leger ») puis
- * recalcule les tailles. Quand aucun effet ne lit la profondeur (ombres d’ambiance, contours),
- * les images qui lui servent sont libérées. Renvoie false si le nom est inconnu.
+ * recalcule les tailles. Sans ombres d’ambiance ni encre, leurs ressources sont libérées ; DT
+ * peut être réallouée à la prochaine visée. Le contour interactif reste actif avec tous les
+ * préréglages. Renvoie false si le nom est inconnu.
  */
 function shaderSet(nom) {
   const p = SHADER.presets[nom];
@@ -1201,8 +1226,9 @@ function shaderSet(nom) {
  * traits grandit avec la hauteur de l’image, pour rester visible sur grand écran), dessine la profondeur (les objets de la couche 1 avec un matériau
  * de profondeur, fond blanc = infiniment loin), calcule le masque des contours, les ombres
  * d’ambiance (AA→AB→AA : calcul, flou horizontal, flou vertical) et le halo (BA : pixels
- * clairs, puis deux flous BA→BB→BA). Sans effet actif, la fonction ne dessine rien et l’image
- * reste celle d’origine.
+ * clairs, puis deux cycles de flou BA→BB→BA). Une cible visible en jeu ajoute sa silhouette
+ * HD (couche 2 temporaire) et la profondeur DT, même sans effet de style. Les couches sont
+ * restaurées ensuite. Sans effet ni cible, aucune passe annexe n’est dessinée.
  */
 function shRender() {
   const o = SHADER,
@@ -1210,8 +1236,13 @@ function shRender() {
     ok = rm.outline === undefined ? 1 : rm.outline,
     A = o.ao.mix > 0,
     O = o.outline.strength * ok > 0,
-    B = o.bloom.strength > 0;
-  if (++shN % 8 === 0 && cur && (A || O)) shTag(cur.g);
+    B = o.bloom.strength > 0,
+    H = !!hov && ui === "play" && hoverVisible(hov);
+  if (++shN % 8 === 0 && cur && (A || O || H)) shTag(cur.g);
+  shU.sh.value = H ? 1 : 0;
+  shU.hw.value = Math.max(1, (o.highlight.width * shU.res.value.y) / innerHeight);
+  shU.hb.value = o.highlight.bias;
+  shU.hcol.value.fromArray(o.highlight.color);
   shU.sa.value = o.ao.mix;
   shU.sb.value = o.bloom.strength;
   shU.sg.value = o.grade.strength;
@@ -1223,7 +1254,7 @@ function shRender() {
   shU.th.value = o.bloom.threshold;
   shU.ink.value.setRGB(o.outline.color[0], o.outline.color[1], o.outline.color[2]);
   shU.pr.value.set(cam.projectionMatrix.elements[0], cam.projectionMatrix.elements[5]);
-  if (A || O) {
+  if (A || O || H) {
     const bg = sc.background,
       ca = R.getClearAlpha();
     R.getClearColor(shCol);
@@ -1233,6 +1264,27 @@ function shRender() {
     R.setClearColor(0xffffff, 1);
     R.setRenderTarget(DT);
     R.render(sc, cam);
+    if (H) {
+      // Pas de coque agrandie ni de couleur remplacée : seulement la vraie silhouette.
+      const layers = [],
+        root = hov.material.visible === false ? hov.parent : hov;
+      root.traverse((m) => {
+        if (
+          m.isMesh &&
+          m.material &&
+          m.material.visible !== false &&
+          !m.material.transparent &&
+          m.material.depthWrite !== false
+        ) {
+          layers.push([m, m.layers.mask]);
+          m.layers.enable(2);
+        }
+      });
+      cam.layers.set(2);
+      R.setRenderTarget(HD);
+      R.render(sc, cam);
+      layers.forEach(([m, mask]) => (m.layers.mask = mask));
+    }
     R.setClearColor(shCol, ca);
     cam.layers.set(0);
     sc.overrideMaterial = null;
@@ -1687,8 +1739,8 @@ const FM = {},
 
 /**
  * Rend un objet m interactif. name est le nom affiché quand on le vise ; fn est l’action
- * appelée par use(). Clone le matériau pour que le surlignage d’un objet ne colore pas
- * tous ses voisins. Ajoute aussi des poignées à certaines portes.
+ * appelée par use(). Clone le matériau pour isoler les changements propres à l’objet ; le
+ * contour de visée utilise un masque séparé, sans le recolorer. Ajoute des poignées aux portes.
  */
 function it(m, name, fn) {
   m.material = m.material.clone();
@@ -2851,13 +2903,13 @@ function persMerge(g) {
 }
 
 /**
- * Corps proportionné de Léa (lea vrai) ou de Karim dans le groupe g : jambes allongées,
- * haut raccourci, épaules et poignets raccordés, sans volumes articulaires rapportés. lg/ar
- * sont les groupes animables ; mkNpc() recentre leurs axes sur les nouvelles articulations
- * en gardant la pose au repos. o fournit c1 (haut), c2 (pantalon et chaussures) et h (cheveux).
- * Léa conserve son tablier vert et sa queue de cheval ; Karim son polo, son badge et sa barbe
- * colorée sur la mâchoire. Les visages simples sont inchangés. Après persMerge() : cinq
- * maillages fixes, un par jambe et deux par bras.
+ * Corps proportionné de Léa (lea vrai) ou de Karim dans le groupe g ; lg/ar sont leurs
+ * pivots animables. Tenues professionnelles : chemise claire à col et gilet bleu nuit pour
+ * Léa, chemise bleu clair à col et badge pour Karim ; pantalons droits et chaussures sombres.
+ * o fournit c1 (chemise), c2 (pantalon) et h (cheveux). Visages, coiffures et barbe inchangés.
+ * Cols de vraie épaisseur, tissus séparés, manches et poignets raccordés bout à bout ; le haut
+ * des cuisses reste sous le vêtement pendant la marche. Les fusions par couleur gardent les
+ * articulations de mkNpc(), sans modifier les trajets ni les actions.
  */
 function persStaff(g, lg, ar, o, lea) {
   const S = PERS_SKIN,
@@ -2865,32 +2917,7 @@ function persStaff(g, lg, ar, o, lea) {
     H = 0.37,
     D = 0.34,
     C = [0, 0.16, 0],
-    A = lea ? 0x266866 : 0xf6e8cc;
-  // Panneau de tissu : centre plat et bords rabattus, sans traverser le haut porté dessous.
-  const cloth = (rows, color) => {
-    const positions = [],
-      uvs = [],
-      indices = [],
-      columns = [-1, -0.5, 0, 0.5, 1];
-    rows.forEach(([w, y, z], i) => {
-      columns.forEach((side, j) => {
-        positions.push(side * w, y, z - Math.max(0, Math.abs(side) - 0.5) * w * 0.46);
-        uvs.push(j / (columns.length - 1), i / (rows.length - 1));
-      });
-      if (i)
-        for (let j = 0; j < columns.length - 1; j++) {
-          const a = (i - 1) * columns.length + j,
-            b = a + 1;
-          indices.push(a, b, b + columns.length, a, b + columns.length, a + columns.length);
-        }
-    });
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-    geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
-    geo.setIndex(indices);
-    geo.computeVertexNormals();
-    persAdd(g, geo, color, [0, 0, 0]);
-  };
+    A = lea ? 0x233449 : 0xb8d0df;
   // Manche ou bras en un seul volume continu : aucune tranche superposée au coude.
   const limb = (parent, rows, color) => {
     const geo = persLathe(
@@ -2916,10 +2943,13 @@ function persStaff(g, lg, ar, o, lea) {
         [
           [0, -0.435],
           [0.062, -0.435],
-          [0.071, -0.2],
-          [0.079, -0.05],
-          [0.094, 0.14],
-          [0.105, 0.32],
+          [0.068, -0.2],
+          [0.069, -0.05],
+          [0.068, 0.14],
+          [0.065, 0.18],
+          [0.065, 0.2],
+          [0.085, 0.24],
+          [0.092, 0.32],
           [0, 0.32],
         ],
         6,
@@ -2928,12 +2958,12 @@ function persStaff(g, lg, ar, o, lea) {
       o.c2,
       [0, 0, 0],
     );
-    persAdd(p, persShoeGeo(0.12, 0.075, 0.215), o.c2, [0, -0.4625, 0.034]);
+    persAdd(p, persShoeGeo(0.12, 0.075, 0.215), 0x171d25, [0, -0.4625, 0.034]);
     // Semelle sombre : un liseré fin qui détache la chaussure du sol.
     persAdd(p, persShoeGeo(0.126, 0.022, 0.221), 0x23201e, [0, -0.489, 0.034]);
   });
-  // Haut raccourci, taille au-dessus des hanches et épaules continues, sans boules rapportées.
-  persAdd(
+  // Gilet enveloppant de Léa ; chemise de Karim. Mêmes volumes et mêmes articulations.
+  const body = persAdd(
     g,
     persLathe(
       lea
@@ -2960,49 +2990,35 @@ function persStaff(g, lg, ar, o, lea) {
       8,
       lea ? 0.64 : 0.66,
     ),
-    o.c1,
+    lea ? A : o.c1,
     [0, 0, 0],
   );
-  // Manches reliées au torse et aux mains : léger coude, bras proches du corps.
+  // Chemises à manches longues : poignets bout à bout, mains toujours visibles.
   ar.forEach((p, i) => {
-    const side = i ? 1 : -1;
-    if (lea) {
-      limb(
-        p,
-        [
-          [-side * 0.039, -0.46, 0.045, 0],
-          [-side * 0.039, -0.46, 0.045, 0.048],
-          [-side * 0.047, -0.22, 0.018, 0.063],
-          [-side * 0.075, 0.025, 0, 0.079],
-          [-side * 0.085, 0.08, 0, 0.042],
-          [-side * 0.085, 0.09, 0, 0],
-        ],
-        o.c1,
-      );
-    } else {
-      limb(
-        p,
-        [
-          [-side * 0.055, -0.12, 0.012, 0],
-          [-side * 0.055, -0.12, 0.012, 0.073],
-          [-side * 0.075, 0.025, 0, 0.084],
-          [-side * 0.085, 0.08, 0, 0.045],
-          [-side * 0.085, 0.09, 0, 0],
-        ],
-        o.c1,
-      );
-      limb(
-        p,
-        [
-          [-side * 0.039, -0.46, 0.045, 0],
-          [-side * 0.039, -0.46, 0.045, 0.044],
-          [-side * 0.047, -0.22, 0.018, 0.055],
-          [-side * 0.055, -0.115, 0.012, 0.059],
-          [-side * 0.055, -0.105, 0.012, 0],
-        ],
-        S,
-      );
-    }
+    const side = i ? 1 : -1,
+      cuff = lea ? 0xe0e5e5 : 0xb0c9da;
+    limb(
+      p,
+      [
+        [-side * 0.0405, -0.415, 0.03994, 0],
+        [-side * 0.0405, -0.415, 0.03994, 0.05081],
+        [-side * 0.047, -0.22, 0.018, 0.063],
+        [-side * 0.075, 0.025, 0, 0.079],
+        [-side * 0.085, 0.08, 0, 0.042],
+        [-side * 0.085, 0.09, 0, 0],
+      ],
+      o.c1,
+    );
+    limb(
+      p,
+      [
+        [-side * 0.039, -0.46, 0.045, 0],
+        [-side * 0.039, -0.46, 0.045, 0.048],
+        [-side * 0.0405, -0.415, 0.03994, 0.05081],
+        [-side * 0.0405, -0.415, 0.03994, 0],
+      ],
+      cuff,
+    );
     persAdd(
       p,
       lpChamferGeo(0.07, 0.115, 0.075, 0.016),
@@ -3069,49 +3085,6 @@ function persStaff(g, lg, ar, o, lea) {
       [0, 0.168, -0.2135],
       [-1.26, 0, 0],
     );
-    // Tablier en un panneau ajusté : plus de plaques épaisses ou de bretelles saillantes.
-    cloth(
-      [
-        [0.182, 0.67, 0.166],
-        [0.18, 0.79, 0.166],
-        [0.163, 0.95, 0.166],
-        [0.102, 1.015, 0.166],
-        [0.102, 1.17, 0.166],
-      ],
-      A,
-    );
-    persAdd(
-      g,
-      new THREE.CylinderGeometry(0.216, 0.216, 0.032, 8, 1, true, Math.PI / 8),
-      A,
-      [0, 0.95, 0],
-      0,
-      [1, 1, 0.64],
-    );
-    // Bretelles plates : deux lanières fines qui montent du haut du plastron et épousent le
-    // torse jusqu’à l’épaule, au lieu de tiges pointues.
-    [-1, 1].forEach((side) => {
-      [
-        [
-          [0.08, 1.16, 0.168],
-          [0.087, 1.262, 0.156],
-        ],
-        [
-          [0.087, 1.262, 0.156],
-          [0.092, 1.322, 0.1],
-        ],
-      ].forEach(([a, b]) => {
-        const v = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]),
-          m = persAdd(g, new THREE.BoxGeometry(0.03, v.length() + 0.004, 0.007), A, [
-            (side * (a[0] + b[0])) / 2,
-            (a[1] + b[1]) / 2,
-            (a[2] + b[2]) / 2,
-          ]);
-        v.x *= side;
-        m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), v.normalize());
-      });
-    });
-    persAdd(g, new THREE.PlaneGeometry(0.12, 0.07), o.c1, [0, 0.815, 0.176]);
   } else {
     // Une seule calotte de cheveux, sans mèche ou moustache en relief.
     persAdd(
@@ -3120,46 +3093,209 @@ function persStaff(g, lg, ar, o, lea) {
       o.h,
       [0, 0.166, -0.003],
     );
-    // Petit col posé sur le polo, patte discrète, badge et ceinture à la bonne hauteur.
-    persAdd(
+  }
+  // Cols repliés avec une épaisseur réelle ; pas de plaques presque coplanaires.
+  const solidPatch = (points, color) => {
+    const mesh = persPatch(g, body, points, color, 0.024),
+      source = mesh.geometry,
+      a = source.attributes.position.array,
+      front = [],
+      positions = [],
+      uv = [],
+      edges = new Map(),
+      key = (p) => p.map((v) => Math.round(v * 1e7)).join(":"),
+      add = (p) => {
+        positions.push(...p);
+        uv.push(p[0], p[1]);
+      };
+    for (let i = 0; i < a.length; i += 3)
+      front.push([a[i], a[i + 1], a[i + 2] + 0.08 * (1.352 - a[i + 1])]);
+    for (let i = 0; i < front.length; i += 3) {
+      const t = front.slice(i, i + 3);
+      t.forEach(add);
+      t.slice()
+        .reverse()
+        .forEach((p) => add([p[0], p[1], p[2] - 0.006]));
+      t.forEach((p, j) => {
+        const q = t[(j + 1) % 3],
+          id = [key(p), key(q)].sort().join("/");
+        if (edges.has(id)) edges.delete(id);
+        else edges.set(id, [p, q]);
+      });
+    }
+    edges.forEach(([p, q]) => {
+      const b = [p[0], p[1], p[2] - 0.006],
+        c = [q[0], q[1], q[2] - 0.006];
+      [p, b, q, q, b, c].forEach(add);
+    });
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+    geo.computeVertexNormals();
+    mesh.geometry = geo;
+    source.dispose();
+  };
+  const ray = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, 0, -1), 0, 2),
+    button = (y, color, offset) => {
+      body.updateMatrixWorld(true);
+      ray.ray.origin.set(0, y, 1);
+      const z = ray.intersectObject(body, false)[0].point.z;
+      persAdd(g, lpChamferGeo(0.014, 0.014, 0.008, 0.003), color, [0, y, z + offset]);
+    };
+  if (lea) {
+    // Le gilet couvre les côtés et le dos. Seule l'ouverture en V laisse voir la chemise.
+    persPatch(
       g,
-      persLathe(
-        [
-          [0.171, 1.33],
-          [0.08, 1.36],
-        ],
-        8,
-        0.66,
-      ),
-      A,
-      [0, 0, 0],
-    );
-    cloth(
+      body,
       [
-        [0.013, 1.17, 0.16],
-        [0.013, 1.27, 0.167],
+        [-0.06, 1.36],
+        [0.06, 1.36],
+        [0.096, 1.315],
+        [0, 1.065],
+        [-0.096, 1.315],
       ],
-      A,
+      o.c1,
+      0.012,
     );
-    persAdd(g, new THREE.PlaneGeometry(0.047, 0.026), A, [0.072, 1.125, 0.147]);
+    [0.99, 0.9, 0.81].forEach((y) => button(y, 0x75838e, 0.01));
+    [-1, 1].forEach((side) =>
+      persPatch(
+        g,
+        body,
+        [
+          [0.07, 0.851],
+          [0.158, 0.871],
+          [0.158, 0.855],
+          [0.07, 0.835],
+        ].map(([x, y]) => [side * x, y]),
+        0x172b3d,
+        0.014,
+      ),
+    );
+  } else {
+    [1.22, 1.12, 1.02, 0.92].forEach((y) => button(y, 0xd7e1e7, 0.01));
+    persPatch(
+      g,
+      body,
+      [
+        [0.049, 1.112],
+        [0.096, 1.112],
+        [0.096, 1.138],
+        [0.049, 1.138],
+      ],
+      0xe1e7e8,
+      0.012,
+    );
     persAdd(
       g,
-      new THREE.CylinderGeometry(0.252, 0.252, 0.035, 8, 1, true, Math.PI / 8),
-      0x5a3220,
+      new THREE.CylinderGeometry(0.262, 0.262, 0.035, 8, 1, true, Math.PI / 8),
+      0x19232d,
       [0, 0.77, 0],
       0,
       [1, 1, 0.66],
     );
-    persAdd(g, new THREE.PlaneGeometry(0.037, 0.027), A, [0, 0.77, 0.16]);
+    persAdd(g, new THREE.PlaneGeometry(0.037, 0.027), 0x9fa9b0, [0, 0.77, 0.173]);
   }
+  const collar = lea ? 0xf1f2ed : A;
+  persAdd(
+    g,
+    new THREE.CylinderGeometry(0.078, 0.092, 0.04, 8, 1, true, Math.PI / 8),
+    collar,
+    [0, 1.348, -0.002],
+    0,
+    [1, 1, 0.78],
+  );
+  [-1, 1].forEach((side) =>
+    solidPatch(
+      [
+        [0.018, 1.352],
+        [0.092, 1.315],
+        [0.062, 1.235],
+        [0.01, 1.297],
+      ].map(([x, y]) => [side * x, y]),
+      collar,
+    ),
+  );
+}
+
+/**
+ * Plaque de tissu ajustée au torse body, dans le même repère que g : points décrit son
+ * contour en x/y, gap sa marge physique vers l’avant. Le contour est découpé sur les vraies
+ * facettes avant du maillage : pas de triangle à cheval sur une arête, donc ni zébrures ni
+ * tissu qui coupe la veste. Aucun décalage artificiel de profondeur ni matériau transparent.
+ */
+function persPatch(g, body, points, color, gap) {
+  const source = new THREE.ShapeGeometry(
+      new THREE.Shape(points.map((p) => new THREE.Vector2(...p))),
+    ),
+    sp = source.attributes.position,
+    si = source.index && source.index.array,
+    bp = body.geometry.attributes.position,
+    bi = body.geometry.index && body.geometry.index.array,
+    positions = [],
+    uv = [],
+    cross = (a, b, p) => (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]),
+    // Découper le contour sur chaque vraie facette, sans triangles à cheval sur une arête.
+    clip = (poly, a, b) => {
+      const result = [];
+      poly.forEach((p, i) => {
+        const q = poly[(i + 1) % poly.length],
+          d = cross(a, b, p),
+          e = cross(a, b, q),
+          inside = d >= -1e-10;
+        if (inside) result.push(p);
+        if (inside !== e >= -1e-10) {
+          const t = d / (d - e);
+          result.push([p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t]);
+        }
+      });
+      return result;
+    };
+  body.updateMatrix();
+  for (let i = 0; i < (bi ? bi.length : bp.count); i += 3) {
+    const face = [0, 1, 2].map((k) =>
+        new THREE.Vector3()
+          .fromBufferAttribute(bp, bi ? bi[i + k] : i + k)
+          .applyMatrix4(body.matrix),
+      ),
+      normal = face[1].clone().sub(face[0]).cross(face[2].clone().sub(face[0]));
+    if (normal.z <= 1e-10) continue;
+    for (let j = 0; j < (si ? si.length : sp.count); j += 3) {
+      let poly = [0, 1, 2].map((k) => {
+        const n = si ? si[j + k] : j + k;
+        return [sp.getX(n), sp.getY(n)];
+      });
+      for (let k = 0; k < 3 && poly.length; k++)
+        poly = clip(poly, face[k].toArray(), face[(k + 1) % 3].toArray());
+      for (let k = 1; k + 1 < poly.length; k++) {
+        const triangle = [poly[0], poly[k], poly[k + 1]],
+          area = cross(...triangle);
+        if (Math.abs(area) < 1e-10) continue;
+        if (area < 0) triangle.reverse();
+        triangle.forEach(([x, y]) => {
+          const z =
+            face[0].z - (normal.x * (x - face[0].x) + normal.y * (y - face[0].y)) / normal.z;
+          positions.push(x, y, z + gap);
+          uv.push(x, y);
+        });
+      }
+    }
+  }
+  source.dispose();
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  geo.computeVertexNormals();
+  return persAdd(g, geo, color, [0, 0, 0]);
 }
 
 /**
  * Modèle du directeur, groupe fixe aux pieds à l’origine et tourné vers +z : costume sombre
  * à revers et boutons, jambes longues sous une veste ajustée, épaules continues, chemise
  * claire à poignets, pochette, cravate rouge, bras croisés,
- * mâchoire simple, cheveux plaqués et traits discrets. Même hauteur (≈ 2,08 m) et même
- * encombrement que l’ancien modèle ; six maillages après fusion par couleur. Renvoie le groupe.
+ * mâchoire simple, cheveux plaqués et traits discrets. Hauteur ≈ 2,08 m ; les avant-bras
+ * passent sur deux plans séparés, sans traverser la main opposée. Neuf maillages après fusion
+ * par couleur (cinq fixes et quatre dans la tête animable). Renvoie le groupe.
  */
 function persDirector() {
   const g = new THREE.Group(),
@@ -3173,13 +3309,33 @@ function persDirector() {
     H = 0.36,
     D = 0.33,
     lerp = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t),
-    // Avant-bras croisé du coude e au poignet w : manche, poignet de chemise et main.
+    // Manche et poignet se raccordent bout à bout, sans deux cylindres presque confondus.
     arm = (e, w, hp, ry) => {
-      persLimb(g, e, w, 0.075, 0.064, SU);
-      persLimb(g, lerp(e, w, 0.86), lerp(e, w, 1.03), 0.068, 0.066, SH);
+      const cuff = lerp(e, w, 0.84);
+      persLimb(g, e, cuff, 0.065, 0.056, SU);
+      persLimb(g, cuff, w, 0.056, 0.054, SH);
       persAdd(g, lpChamferGeo(0.075, 0.1, 0.11, 0.022), S, hp, [0, ry, 0]);
-    };
-  [-1, 1].forEach((s) => {
+    },
+    body = persAdd(
+      g,
+      persLathe(
+        [
+          [0, 0.95],
+          [0.255, 0.95],
+          [0.246, 1.06],
+          [0.252, 1.34],
+          [0.282, 1.56],
+          [0.272, 1.64],
+          [0.21, 1.7],
+          [0.1, 1.75],
+        ],
+        8,
+        0.62,
+      ),
+      SU,
+      [0, 0, 0],
+    );
+  [-1, 1].forEach((side) => {
     persAdd(
       g,
       persLathe(
@@ -3194,49 +3350,47 @@ function persDirector() {
         0.94,
       ),
       TR,
-      [s * 0.12, 0, 0],
+      [side * 0.12, 0, 0],
     );
-    persAdd(g, persShoeGeo(0.13, 0.09, 0.28), TR, [s * 0.12, 0.045, 0.045]);
-    persLimb(g, [s * 0.255, 1.625, 0], [s * 0.285, 1.31, 0.055], 0.08, 0.073, SU);
-    // Revers de la veste, inclinés pour accrocher la lumière.
-    lprism(
-      [
-        [0.004, 0],
-        [0.078, 0.27],
-        [0.13, 0.2],
-        [0.045, 0.01],
-      ].map((q) => [q[0] * s, q[1]]),
-      0.02,
-      0,
-      1.41,
-      0.162,
+    persAdd(g, persShoeGeo(0.13, 0.09, 0.28), TR, [side * 0.12, 0.045, 0.045]);
+    // Les coudes rejoignent exactement les avant-bras ; l’un passe nettement devant l’autre.
+    persLimb(
+      g,
+      [side * 0.255, 1.625, 0],
+      [side * 0.285, 1.31, side < 0 ? 0.37 : 0.18],
+      0.08,
+      0.065,
       SU,
-      { g, ry: s * 0.35 },
     );
   });
-  persAdd(
+  persPatch(
     g,
-    persLathe(
+    body,
+    [
+      [-0.075, 1.68],
+      [0.075, 1.68],
+      [0, 1.41],
+    ],
+    SH,
+    0.012,
+  );
+  [-1, 1].forEach((side) =>
+    persPatch(
+      g,
+      body,
       [
-        [0, 0.95],
-        [0.255, 0.95],
-        [0.246, 1.06],
-        [0.252, 1.34],
-        [0.282, 1.56],
-        [0.272, 1.64],
-        [0.21, 1.7],
-        [0.1, 1.75],
-      ],
-      8,
-      0.62,
+        [0.004, 1.41],
+        [0.078, 1.68],
+        [0.13, 1.61],
+        [0.045, 1.42],
+      ].map(([x, y]) => [side * x, y]),
+      SU,
+      0.023,
     ),
-    SU,
-    [0, 0, 0],
   );
   [1.33, 1.2].forEach((y, i) =>
-    persAdd(g, lpChamferGeo(0.028, 0.028, 0.016, 0.006), TR, [0, y, 0.15 - i * 0.009]),
+    persAdd(g, lpChamferGeo(0.028, 0.028, 0.016, 0.006), TR, [0, y, 0.162 - i * 0.009]),
   );
-  // Chemise : col, plastron en V et pochette ; cravate : nœud et pan.
   persAdd(
     g,
     new THREE.CylinderGeometry(0.086, 0.1, 0.075, 8, 1, true, Math.PI / 8),
@@ -3245,52 +3399,35 @@ function persDirector() {
     0,
     [1, 1, 0.85],
   );
-  lprism(
+  persPatch(
+    g,
+    body,
     [
-      [-0.075, 0],
-      [0.075, 0],
-      [0, -0.27],
+      [0.115, 1.5],
+      [0.175, 1.5],
+      [0.165, 1.528],
+      [0.135, 1.536],
     ],
-    0.02,
-    0,
-    1.68,
-    0.162,
     SH,
-    { g },
+    0.018,
   );
-  lprism(
+  persAdd(g, lpChamferGeo(0.05, 0.045, 0.03, 0.008), TI, [0, 1.657, 0.18]);
+  persPatch(
+    g,
+    body,
     [
-      [0, 0],
-      [0.06, 0],
-      [0.05, 0.028],
-      [0.02, 0.036],
+      [-0.022, 1.64],
+      [0.022, 1.64],
+      [0.042, 1.42],
+      [0, 1.37],
+      [-0.042, 1.42],
     ],
-    0.012,
-    0.115,
-    1.5,
-    0.158,
-    SH,
-    { g, ry: 0.35 },
-  );
-  persAdd(g, lpChamferGeo(0.05, 0.045, 0.03, 0.008), TI, [0, 1.657, 0.17]);
-  lprism(
-    [
-      [-0.022, 0],
-      [0.022, 0],
-      [0.042, -0.22],
-      [0, -0.27],
-      [-0.042, -0.22],
-    ],
-    0.016,
-    0,
-    1.64,
-    0.172,
     TI,
-    { g },
+    0.034,
   );
-  // Bras croisés : l’avant-bras droit passe devant le gauche.
-  arm([-0.285, 1.31, 0.055], [0.12, 1.405, 0.22], [0.17, 1.415, 0.22], 0.4);
-  arm([0.285, 1.31, 0.055], [-0.12, 1.355, 0.18], [-0.17, 1.365, 0.18], -0.4);
+  // Une marge réelle sépare les deux manches, y compris près des poignets opposés.
+  arm([-0.285, 1.31, 0.37], [0.12, 1.47, 0.42], [0.17, 1.488, 0.42], 0.4);
+  arm([0.285, 1.31, 0.18], [-0.1, 1.355, 0.26], [-0.15, 1.365, 0.26], -0.4);
   // Cou, visage simple et coiffure sobre ; le costume et la pose distinguent le directeur.
   // La tête vit dans un pivot au sommet du cou (1,72 m) : dirLife() la tourne lentement vers
   // le joueur et fait cligner les yeux ; au repos, rien n’a bougé.
@@ -3435,6 +3572,7 @@ function bureauMark(w, h, x, y, z, c, rx = 0, ry = 0, layer = 1) {
   const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
   m.position.set(x, y, z);
   m.rotation.set(rx, ry, 0);
+  m.translateZ(0.002 * layer);
   cur.g.add(m);
   return m;
 }
@@ -6183,6 +6321,7 @@ function mergeG(g) {
  * la sauvegarde permanente SV.
  */
 function build() {
+  hoverSet(null);
   S = {};
   IRL = [];
   sc.children.slice(3).forEach((c) => sc.remove(c));
@@ -9383,6 +9522,7 @@ function hud() {
 function setUI(u) {
   ui = u;
   if (u !== "play") {
+    hoverSet(null);
     mv.x = mv.y = 0;
     for (const k in keys) keys[k] = 0;
   }
@@ -9473,6 +9613,7 @@ function vurl2() {
  * un obstacle. y est ici un angle, pas une hauteur.
  */
 function set(n, x, z, y) {
+  hoverSet(null);
   for (const k in S) S[k].g.visible = k === n;
   cur = S[n];
   shTag(cur.g);
@@ -10253,8 +10394,8 @@ function spawnN() {
     nm: "Léa",
     x: -2.8,
     z: 0.9,
-    c1: 0x8e44ad,
-    c2: 0x2c3e50,
+    c1: 0xe9eeeb,
+    c2: 0x25303c,
     h: 0x5a3220,
     spot: [0, 0.45],
     i: "Ah, te voilà ! Léa, responsable du rayon. La table du centre est vide et on ouvre bientôt. Qu’est-ce qu’on met en vitrine ?",
@@ -10319,8 +10460,8 @@ function spawnN() {
     nm: "Karim",
     x: -3.2,
     z: -3.6,
-    c1: 0x2f6f8f,
-    c2: 0x3a3a3a,
+    c1: 0x9cbcd1,
+    c2: 0x292d33,
     h: 0x151515,
     spot: [2.9, -0.4],
     i: "Salut. Karim, vendeur. Les étiquettes de prix ont été changées cette nuit. Je ne dis pas par qui. Je mets quoi pour l’ouverture ?",
@@ -10536,6 +10677,50 @@ function npcUpd(dt) {
   });
 }
 /* ---- entrées ---- */
+
+/** Renvoie vrai si l’objet et tous ses parents sont visibles dans la salle active. */
+function hoverVisible(m) {
+  for (let p = m; p; p = p.parent) if (!p.visible) return false;
+  return true;
+}
+
+/**
+ * Cible visible sous le réticule, à moins de 3,4 m. Un obstacle opaque placé avant la cible
+ * bloque aussi le ciblage : pas de contour ni d’interaction à travers un mur ou un meuble.
+ * Les vitres et les ombres ne bloquent pas ; 4,5 cm de tolérance conservent poignées et décals.
+ */
+function pickTarget() {
+  if (!cur) return null;
+  rc.setFromCamera({ x: 0, y: 0 }, cam);
+  const hit = rc.intersectObjects(cur.it, false).find((q) => hoverVisible(q.object));
+  if (!hit || hit.distance >= 3.4) return null;
+  const far = rc.far;
+  rc.far = Math.max(0, hit.distance - 0.045);
+  const blockers = rc.intersectObject(cur.g, true);
+  rc.far = far;
+  const root = hit.object.material.visible === false ? hit.object.parent : hit.object;
+  const blocked = blockers.some((q) => {
+    if (!hoverVisible(q.object)) return false;
+    for (let p = q.object; p; p = p.parent) if (p === root) return false;
+    const materials = Array.isArray(q.object.material) ? q.object.material : [q.object.material];
+    return materials.some(
+      (m) => m && m.visible !== false && !m.transparent && m.opacity > 0 && m.depthWrite !== false,
+    );
+  });
+  return blocked ? null : hit.object;
+}
+
+/**
+ * Change la cible et son libellé, sans toucher au matériau d’origine. Le shader ne dessine
+ * qu’un contour coloré extérieur, masqué par les objets qui passent devant. Vider la cible
+ * efface immédiatement le contour, y compris sous un menu ou après un changement de salle.
+ */
+function hoverSet(m) {
+  hov = m;
+  shU.sh.value = m ? 1 : 0;
+  $("hint").style.display = m ? "block" : "none";
+  if (m) $("hint").textContent = m.userData.name;
+}
 
 /**
  * Exécute l’action de l’objet actuellement visé hov, uniquement si le jeu est actif et
@@ -11037,21 +11222,10 @@ function upd(dt) {
       m.rotation.y += dt * 0.2 * (i % 2 ? 1 : -1);
     });
 
-  // Ciblage une image sur deux : rayon au centre, objet visible à moins de 3,4 unités, surlignage et libellé.
+  // Ciblage une image sur deux : cible visible à moins de 3,4 m, obstacle opaque, contour et libellé.
   if (++HF % 2) return;
-  rc.setFromCamera({ x: 0, y: 0 }, cam);
-  const h = rc.intersectObjects(cur.it, false).find((q) => q.object.visible),
-    m = h && h.distance < 3.4 ? h.object : null;
-  if (m !== hov) {
-    if (hov && hov.material.emissive) hov.material.emissive.setHex(hov.userData.e || 0);
-    hov = m;
-    if (m && m.material.emissive) {
-      m.userData.e = m.material.emissive.getHex();
-      m.material.emissive.setHex(0xb08a00);
-    }
-    $("hint").style.display = m ? "block" : "none";
-    if (m) $("hint").textContent = m.userData.name;
-  }
+  const m = pickTarget();
+  if (m !== hov) hoverSet(m);
 }
 
 // ============================================================================
