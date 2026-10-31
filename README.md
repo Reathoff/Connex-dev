@@ -6,7 +6,7 @@ Version jouable de développement de Connex. Ce dépôt contient seulement les f
 
 La version en ligne est servie par GitHub Pages depuis la racine de la branche `main`. Son adresse reste la même lors des mises à jour.
 
-Le local comprend le magasin au rez-de-chaussée, une vraie réserve pour les trois cartons, un dégagement et un escalier vers les bureaux du personnel. Chaque espace a une utilité : documents d’ouverture, suivi de la vitrine et des prix, café à préparer puis boire, chat à caresser, cour avec pause cigarette et cendrier. Les pauses sont facultatives et la cigarette ne donne aucun bonus. L’escalier change de salle par une transition, selon le moteur du jeu.
+Le local comprend le magasin au rez-de-chaussée, une vraie réserve pour les trois cartons, un dégagement et un escalier vers les bureaux du personnel. Chaque espace a une utilité : documents d’ouverture, suivi de la vitrine et des prix, café à préparer puis boire, chat à caresser, cour avec pause cigarette et cendrier. Les pauses sont facultatives et la cigarette ne donne aucun bonus. Le bâtiment est continu : vraies ouvertures, escalier praticable montant à 3,6 m, bureaux ouverts avec verrières et cloisons basses. Aucun bouton E ni fondu entre les espaces du local ; les portes narratives conservent leurs transitions.
 
 Pour ouvrir : ranger C1, C2 et C3, un à la fois, terminer caisse, enseigne, vitrine et prix, puis utiliser la porte d’entrée du magasin au RDC. L’ouverture conserve la fin narrative existante ; il n’y a pas de nouvelle simulation de clientèle. Les accès du directeur, du couloir et de la petite porte sont conservés.
 
