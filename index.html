@@ -1432,6 +1432,10 @@ const stepS = () => {
       0.1,
       {
         shop: 650,
+        localhall: 650,
+        reserve: 900,
+        staff: 550,
+        cour: 1000,
         office: 550,
         cam: 2400,
         rb: 600,
@@ -1535,29 +1539,31 @@ function mus() {
   if (nx < now) nx = now + 0.05;
   const m = finalM
       ? "fin"
-      : CN === "circus2"
-        ? "circus"
-        : CN === "pods"
-          ? "cam"
-          : CN === "dark"
+      : ["localhall", "reserve", "staff", "cour"].includes(CN)
+        ? "shop"
+        : CN === "circus2"
+          ? "circus"
+          : CN === "pods"
             ? "cam"
-            : CN === "colis"
+            : CN === "dark"
               ? "cam"
-              : CN === "white"
-                ? "stars"
-                : CN === "collapse"
-                  ? "rb"
-                  : CN === "grass"
-                    ? "stars"
-                    : CN === "maze"
-                      ? "office"
-                      : CN === "ruin"
-                        ? "cam"
-                        : CN === "circ8"
-                          ? "circus"
-                          : CN === "gen"
-                            ? "rb"
-                            : CN,
+              : CN === "colis"
+                ? "cam"
+                : CN === "white"
+                  ? "stars"
+                  : CN === "collapse"
+                    ? "rb"
+                    : CN === "grass"
+                      ? "stars"
+                      : CN === "maze"
+                        ? "office"
+                        : CN === "ruin"
+                          ? "cam"
+                          : CN === "circ8"
+                            ? "circus"
+                            : CN === "gen"
+                              ? "rb"
+                              : CN,
     l = Math.min(1.5, T.t / 200 + SV.main.length * 0.1),
     bl =
       { shop: 0.5, office: 0.7, cam: 0.8, rb: 0.6, circus: 0.28, stars: 0.6, fin: 0.9 }[m] || 0.6;
@@ -6326,6 +6332,8 @@ function build() {
   IRL = [];
   sc.children.slice(3).forEach((c) => sc.remove(c));
   bShop();
+  bLocalGround();
+  bStaffRooms();
   bOff();
   bCam();
   bRB();
@@ -6376,6 +6384,21 @@ function fin1(k) {
 // 07 · SALLES, OBJETS ET ÉVÉNEMENTS
 // ============================================================================
 function bShop() {
+  // Même tentative : garder travail en cours, choix et pose des PNJ lors d’un rebuild.
+  const previousStaff = T.localShopBuilt
+    ? NP.map((n) => ({
+        id: n.id,
+        st: n.st,
+        c: n.c,
+        wk: n.wk,
+        x: n.x,
+        z: n.z,
+        fy: n.fy,
+        tg: n.tg,
+        p: n.p.map((p) => p.slice()),
+      }))
+    : [];
+  T.localShopBuilt = true;
   mkS("shop", rect(-6.6, 6.6, -5.6, 5.6), 0xcfe3f0);
   room(-7, 7, -6, 6, 3, woodT, 0xe0cda8);
   L(0, 2.6, 0, 0xffe0a8, 0.7, 16);
@@ -6449,7 +6472,7 @@ function bShop() {
   win(-3.5, 1.5, -5.88);
   win(3.5, 1.5, -5.88);
   shelf(-6.6, -1.5, 0.5, 4, 1);
-  shelf(0, -5.6, 3, 0.5, 0);
+  // Axe nord dégagé : accès aux annexes de service.
   // Comptoir : socle en retrait, caisson chanfreiné, panneaux en relief, plateau.
   shopBox(3.9, 0.1, 0.9, 0, 0, -2.5, 0x6a3f1a);
   cbx(4, 0.9, 1, 0, 0.1, -2.5, 0x8a5a2b, { s: 1, b: 0.03 });
@@ -6532,70 +6555,8 @@ function bShop() {
   cbx(0.24, 0.1, 0.03, -1, 1.4, -2.66, 0x20262e, { b: 0.008, rx: -0.2 });
   shopBox(0.07, 0.07, 0.004, -0.83, 1.35, -2.62, 0xf6e8cc, { rx: -0.3 });
 
-  // Interaction « Palette de la réserve » : le nom sert à l’indication de visée, et la fonction passée en dernier définit l’action.
-  it(
-    shopMesh(
-      (g) => {
-        [-0.38, -0.19, 0, 0.19, 0.38].forEach((zz) =>
-          shopBox(1.8, 0.025, 0.14, 0, 0.1, zz, 0, { g }),
-        );
-        [-0.83, 0, 0.83].forEach((xx) => {
-          shopBox(0.14, 0.025, 0.9, xx, 0.075, 0, 0, { g });
-          [-0.38, 0, 0.38].forEach((zz) => shopBox(0.14, 0.18, 0.14, xx, -0.105, zz, 0, { g }));
-        });
-        [-0.38, 0, 0.38].forEach((zz) => shopBox(1.8, 0.02, 0.14, 0, -0.125, zz, 0, { g }));
-      },
-      -4,
-      0.125,
-      -4.6,
-      0xb07a40,
-    ),
-    "Palette de la réserve",
-    () => {
-      if (!T.carry)
-        return say(
-          "Une palette. Vide. Elle attend un carton, comme moi j’attends que tu m’écoutes.",
-        );
-      T.carry = 0;
-      T.tasks.carton = 1;
-      shopCarton(0.7, 0.5, 0.6, -4, 0.25, -4.6, 0xc99a5b);
-      clk();
-      hud();
-      say("Carton rangé. Tu vois ? Ça, c’est du travail d’équipe.");
-    },
-  );
-
-  // Interaction « Carton » : le nom sert à l’indication de visée, et la fonction passée en dernier définit l’action.
-  const c = it(cbx(0.7, 0.5, 0.6, 3.5, 0, 2, 0xc99a5b, { s: 1, b: 0.018 }), "Carton", () => {
-    if (T.tasks.carton || T.carry)
-      return say("Un seul carton à ranger. Pas besoin d’en prendre plusieurs.");
-    T.carry = 1;
-    c.visible = false;
-    {
-      const ix = cur.sol.findIndex(
-        (a) => Math.abs(a[0] - 3.15) < 0.01 && Math.abs(a[2] - 1.7) < 0.01,
-      );
-      if (ix >= 0) cur.sol.splice(ix, 1);
-    }
-    clk();
-    say(
-      "Ce carton pèse exactement ce qu’il faut. Porte-le à la palette de la réserve, au fond à gauche.",
-    );
-  });
-  shopMesh(
-    (g) => {
-      shopBox(0.11, 0.006, 0.608, 0, 0.25, 0, 0, { g });
-      [-1, 1].forEach((k) => shopBox(0.11, 0.22, 0.006, 0, 0.03, k * 0.3, 0, { g }));
-      shopBox(0.006, 0.12, 0.16, 0.35, -0.12, 0.1, 0, { g });
-    },
-    0,
-    0,
-    0,
-    0xe8d8a8,
-    { g: c },
-  );
-  shopCarton(0.7, 0.5, 0.6, 4.5, 0, 2.2, 0xb98a4b, { s: 1 });
-  shopCarton(0.7, 0.46, 0.6, 4.1, 0.5, 2.1, 0xd1a763, { open: 1 });
+  // Trois cartons indépendants au sol ; la réserve est désormais une vraie annexe.
+  localCartons();
   // Enseigne : fond sombre, panneau lumineux sg bordé d’ampoules, emblème en silhouette.
   cbx(2.4, 0.58, 0.05, 0, 2.26, 5.955, 0x4a2a14, { b: 0.015 });
   const sg = shopMesh(
@@ -6619,6 +6580,7 @@ function bShop() {
     0x332211,
   );
   shopLit(sg);
+  if (T.tasks.enseigne) sg.material = new THREE.MeshBasicMaterial({ color: 0xffd24a });
   lprism(shopStar(0.13, 0.42), 0.012, 0, 2.55, 5.866, 0x2b1d12);
   [
     [0.62, 0.6, 0.62],
@@ -6645,10 +6607,15 @@ function bShop() {
   shopBox(0.03, 0.92, 0.03, 2.3, 1.6, 5.975, 0xe8e0d0);
   shopBox(1.12, 0.03, 0.03, 1.755, 2.49, 5.975, 0xe8e0d0);
 
+  localDoor(0, -5.87, false, "Porte du dégagement — réserve et escalier", "localhall", 0, 4.4, 0);
+  localSign("ANNEXES · RÉSERVE · ÉTAGE", 0, 2.58, -5.77, 0, 2.8);
+  localDoor(5, 5.87, false, "Porte de la cour", "cour", 0, 3.5, 0);
+  localSign("COUR EXTÉRIEURE · PAUSE", 5, 2.58, 5.77, Math.PI, 2.4);
+
   // Interaction « Porte d’entrée » : le nom sert à l’indication de visée, et la fonction passée en dernier définit l’action.
   const d = it(cbx(1.2, 2.2, 0.12, 0, 0, 5.9, 0x5b3a1e, { b: 0.02 }), "Porte d’entrée", () => {
     if (T.bo && !T.pw) return say("On n’ouvre pas dans le noir. Enfin… je crois.");
-    const r = TK.filter((k) => !T.tasks[k[0]]);
+    const r = TK.filter((k) => (k[0] === "carton" ? localCartonCount() < 3 : !T.tasks[k[0]]));
     if (r.length)
       return say("Pas encore ! Il reste : " + r.map((k) => k[1].toLowerCase()).join(", ") + ".");
     say("Allez, on ouvre… Respire.");
@@ -6716,7 +6683,7 @@ function bShop() {
   hv.position.set(6.83, 1.6, 1.8);
   shopBox(0.01, 0.16, 1.2, 6.835, 0.04, 1.8, 0x8a8a92);
   plant(-6.3, 4.7);
-  plant(6.2, 5.2);
+  // Palier sud-est libre pour le retour depuis la cour (5, 4).
   plant(6.2, -5.2);
   plant(-6.3, 5.4);
   desk(4.5, -4.6);
@@ -6749,14 +6716,706 @@ function bShop() {
   if (SV.gone) T.tasks.vitrine = T.tasks.prix = 1;
   if (T.bo && !T.pw) {
     T.tasks.vitrine = T.tasks.prix = 1;
+    NP.length = 0;
     blackoutShop();
-  } else if (!SV.gone) spawnN();
+  } else if (!SV.gone) {
+    spawnN(); // spawnN vide déjà NP : pas de second Léa/Karim après reconstruction.
+    localRestoreStaff(previousStaff);
+  } else NP.length = 0;
 }
+
+// >>> LP-LOCAL STAFF/COUR — additions isolées, aucune quête validée ici.
+/**
+ * Hook build : appeler bStaffRooms() avant la boucle fin1(). Hook simulation : appeler
+ * localStaffUpd(dt) avant le ciblage. Les deux salles restent facultatives.
+ * État de tentative exclusivement T.local.staff ; aucun carton, PNJ ou secret modifié.
+ * Le groupe staff représente le premier étage (coordonnées locales au sol, comme office).
+ * QA après fin1 : staff 102 meshes / 8662 triangles ; cour 23 / 1280.
+ * Budgets de géométrie, non une promesse de FPS ; rapport docs/STAFF_COUR.md.
+ */
+function bStaffRooms() {
+  const local = T.local || (T.local = {});
+  local.staff ||
+    (local.staff = {
+      coffee: "idle",
+      coffeeT: 0,
+      catT: 0,
+      smoke: "idle",
+      smokeT: 0,
+      ash: false,
+    });
+  // Tous les objets animés sont exclus de mergeG ; fin1 fige ensuite les matrices :
+  // localStaffUpd les réactive explicitement avant la première image animée.
+  const mobile = (m, list) => {
+      m.traverse((o) => {
+        o.userData.keep = 1;
+        list.push(o);
+      });
+      return m;
+    },
+    label = (text, x, y, z, w, ry = 0) => {
+      const t = tex((g, n) => {
+        g.fillStyle = "#f1e4cb";
+        g.fillRect(0, 0, n, n);
+        g.fillStyle = "#302e2c";
+        g.font = "bold 40px Arial";
+        g.textAlign = "center";
+        g.textBaseline = "middle";
+        text
+          .split("|")
+          .forEach((line, i, a) =>
+            g.fillText(line, n / 2, n / 2 + (i - (a.length - 1) / 2) * 48, n - 12),
+          );
+      }, 256);
+      const sign = bx(w, w * 0.38, 0.025, x, Math.min(y, 2.975 - w * 0.38), z, 0, { t });
+      sign.rotation.y = ry;
+      return sign;
+    },
+    read = (title, text) =>
+      panel("<h1>" + title + "</h1><p>" + text + "</p><button data-a='close'>Fermer</button>"),
+    // Ouverture réelle de 1,8 m entre jambages solides ; linteau hors collision.
+    partition = (axis, fixed, a, b, door) => {
+      const seg = (lo, hi) => {
+        if (hi <= lo) return;
+        bx(
+          axis === "x" ? 0.16 : hi - lo,
+          3,
+          axis === "x" ? hi - lo : 0.16,
+          axis === "x" ? fixed : (lo + hi) / 2,
+          0,
+          axis === "x" ? (lo + hi) / 2 : fixed,
+          0xd4bfa0,
+          { s: 1 },
+        );
+      };
+      if (door == null) {
+        seg(a, b);
+        return;
+      }
+      seg(a, door - 0.9);
+      seg(door + 0.9, b);
+      bx(
+        axis === "x" ? 0.16 : 1.8,
+        0.65,
+        axis === "x" ? 1.8 : 0.16,
+        axis === "x" ? fixed : door,
+        2.35,
+        axis === "x" ? door : fixed,
+        0xd4bfa0,
+      );
+      // Battants maintenus ouverts côté pièce ; le passage utile reste > 1,3 m.
+      if (axis === "z") {
+        const inside = fixed === 5.5 ? 1 : -1;
+        cbx(0.08, 2.2, 1.45, door - 0.85, 0, fixed + inside * 0.85, 0x8a6845, { s: 1 });
+        cbx(0.12, 0.06, 0.08, door - 0.78, 1, fixed + inside * 1.35, 0xb79c65);
+      }
+    };
+  mkS("staff", rect(-9.7, 9.7, -4.7, 10.7), 0xd8d0ba);
+  const st = cur;
+  st.localAnim = [];
+  // Plan validé : bureaux au nord, escalier nord-est, circulation transversale,
+  // coin pause/chat au sud-ouest et salle commune au sud-est.
+  room(-10, 10, -5, 11, 3, woodT, 0xe0cda8);
+  [-7, -2, 3, 8].forEach((x) => L(x, 2.65, 4, 0xffdfad, 0.4, 8));
+  [
+    [-7.4, -1],
+    [-2.1, -1],
+    [3.2, -1],
+    [8, -1],
+    [-6, 8],
+    [6, 8],
+  ].forEach(([x, z]) => L(x, 2.6, z, 0xffdfad, 0.55, 10));
+  partition("z", 2.5, -10, -4.7, -7.4);
+  partition("z", 2.5, -4.7, 0.6, -2.1);
+  partition("z", 2.5, 0.6, 6, 3.2);
+  partition("x", -4.7, -5, 2.5);
+  partition("x", 0.6, -5, 2.5);
+  partition("x", 6, -5, 2.5);
+  partition("z", 2.5, 6, 10, 8);
+  partition("z", 5.5, -10, 1, -3);
+  partition("z", 5.5, 1, 10, 5.5);
+  partition("x", 1, 5.5, 11);
+  bx(18.8, 0.012, 1.8, 0, 0.005, 4, 0x8d5940);
+  label("1er étage|Bureaux · Équipe", 0, 2.4, -4.84, 1.6);
+  const docs = [
+    [
+      "Organisation",
+      "Consignes d'ouverture",
+      "Avant d’ouvrir : allumer la caisse, ranger les trois cartons dans la réserve, un à la fois et allumer l’enseigne. La liste d’objectifs indique ce qui reste à faire.",
+    ],
+    [
+      "Rayon",
+      "Fiche vitrine — Léa",
+      "Pour la vitrine, retourne voir Léa dans la boutique et choisis avec elle les produits à présenter. Attends la fin de son installation : lire cette fiche ne valide pas sa tâche.",
+    ],
+    [
+      "Affichage",
+      "Fiche prix — Karim",
+      "Les prix se décident avec Karim dans la boutique. Choisis une offre dans son dialogue, puis laisse-le poser les étiquettes. Aucun prix n’est validé depuis ce bureau.",
+    ],
+  ];
+  [-7.4, -2.1, 3.2].forEach((x, i) => {
+    desk(x, -2.2);
+    label(docs[i][0], x, 2.1, -4.84, 1.5);
+    label(docs[i][0], x, 2.45, 2.61, 1.3);
+    it(bureauFolder(x, 0.865, -1.85, [0x687e7b, 0xb77e44, 0x747d9b][i]), docs[i][1], () =>
+      read(docs[i][1], docs[i][2]),
+    );
+    plant(x + 1.6, 0.7);
+  });
+  // Palier réel au nord-est, marches décoratives : porte de transfert à leur pied.
+  for (let i = 0; i < 6; i++) bx(2.3, 0.12 + i * 0.16, 0.38, 8, 0, -0.7 - i * 0.38, 0xa78b65);
+  it(bx(1.4, 2.25, 0.12, 8, 0, 0.1, 0x6a4e36), "Escalier — rez-de-chaussée", () => {
+    doorS();
+    go("localhall", 2, 0, 0);
+  });
+  label("Escalier|Rez-de-chaussée", 8, 2.35, 0.18, 1.4);
+  label("Coin pause", -3, 2.45, 5.39, 1.3);
+  label("Salle commune", 5.5, 2.45, 5.39, 1.3);
+  // Salle commune : tableau papier (aucune copie de PNJ dialoguable).
+  label("Salle commune", 6, 2.35, 10.84, 2);
+  const board = it(
+    bx(2.3, 1.1, 0.12, 6, 1.05, 10.78, 0x668277),
+    "Tableau d'équipe — Léa / Karim",
+    () => {
+      const tasks = T.tasks || {};
+      read(
+        "Point d’équipe",
+        "Léa — vitrine : " +
+          (tasks.vitrine
+            ? "installation terminée."
+            : "choix et installation à faire avec Léa, en boutique.") +
+          "<br><br>Karim — prix : " +
+          (tasks.prix ? "étiquettes posées." : "offre à décider avec Karim, en boutique.") +
+          "<br><br>Conseil pratique : vérifie les objectifs avant de retourner à l’entrée. Ce tableau est un aide-mémoire ; il ne remplace aucune conversation.",
+      );
+    },
+  );
+  label("LÉA · VITRINE|KARIM · PRIX", 6, 1.3, 10.7, 1.8);
+  // Étiquettes du tableau non opaques au rayon : le fond est la cible, juste derrière.
+  st.g.children[st.g.children.length - 1].material.depthWrite = false;
+  bx(2.5, 0.1, 1.1, 6, 0.75, 8.5, 0x9b673a, { s: 1 });
+  [-1, 1].forEach((s) => {
+    bx(0.14, 0.75, 0.7, 6 + s, 0, 8.5, 0x6a4e36);
+    chair(6 + s * 0.7, 7.3, 0x53716e);
+  });
+  plant(8.8, 9.7);
+  // Chat low-poly au sol : corps ciblable + tête/queue/yeux animés visibles.
+  const cat = new THREE.Group();
+  st.g.add(cat);
+  cat.position.set(-1.6, 0, 9.5);
+  const inCat = (m) => {
+    st.g.remove(m);
+    cat.add(m);
+    return m;
+  };
+  const body = inCat(ball(0.32, 0, 0.36, 0, 0xc58b52, 0.8));
+  body.scale.z = 1.6;
+  it(body, "Caresser le chat", () => {
+    const a = (T.local || (T.local = {})).staff;
+    if (a.catT > 0) return;
+    a.catT = 2.6;
+    if (AC) {
+      tone(230, AC.currentTime, 0.22, "sine", 0.09, SB);
+      tone(320, AC.currentTime + 0.14, 0.3, "sine", 0.06, SB);
+      noise(AC.currentTime, 0.5, 85, 0.07);
+    }
+    say("Le chat relève la tête, ferme les yeux et ronronne.");
+  });
+  const head = inCat(ball(0.23, 0, 0.58, 0.4, 0xd69c60));
+  it(head, "Caresser le chat", body.userData.fn);
+  const eyes = [];
+  [-1, 1].forEach((s) => {
+    inCat(lcyl(0, 0.115, 0.22, s * 0.15, 0.7, 0.38, 0xc58b52, { n: 3 }));
+    eyes.push(inCat(bx(0.046, 0.055, 0.025, s * 0.09, 0.6, 0.608, 0x23352d)));
+    inCat(bx(0.14, 0.14, 0.22, s * 0.2, 0.12, 0.2, 0xd69c60));
+  });
+  inCat(ball(0.035, 0, 0.55, 0.635, 0x503b34));
+  const tail = inCat(cbx(0.1, 0.55, 0.1, 0.22, 0.28, -0.43, 0xc58b52));
+  st.cat = { cat, head, eyes, tail };
+  mobile(cat, st.localAnim);
+  // Coin café : la préparation remplit réellement une tasse, puis une seconde action boit.
+  label("Coin café|Préparer · puis boire", -6, 2.3, 10.84, 2);
+  bx(3, 0.85, 0.8, -6, 0, 7, 0x8a6341, { s: 1 });
+  cbx(3.1, 0.08, 0.9, -6, 0.85, 7, 0xd9c7a8);
+  const machine = it(
+    cbx(0.8, 0.75, 0.5, -6.3, 0.93, 6.98, 0x384b4b),
+    "Cafetière — préparer",
+    () => {
+      const a = (T.local || (T.local = {})).staff;
+      if (T.bo && !T.pw)
+        return say("La cafetière est hors tension. Le café attendra le retour du courant.");
+      if (a.coffee === "preparing") return say("Le café coule : la tasse se remplit.");
+      if (a.coffee === "ready" || a.coffee === "drinking")
+        return say("La tasse est déjà prête : prends-la pour boire.");
+      a.coffee = "preparing";
+      a.coffeeT = 0;
+      clk();
+      say("Préparation du café…");
+    },
+  );
+  cbx(0.16, 0.06, 0.4, -6.3, 1.29, 7.28, 0x202a2c);
+  const cup = new THREE.Group();
+  st.g.add(cup);
+  cup.position.set(-6.3, 0.95, 7.46);
+  const cupMesh = llathe(
+    [
+      [0, 0],
+      [0.12, 0],
+      [0.14, 0.22],
+      [0.115, 0.22],
+      [0.095, 0.025],
+      [0, 0.025],
+    ],
+    0,
+    0,
+    0,
+    0xeee1c7,
+    { n: 8 },
+  );
+  st.g.remove(cupMesh);
+  cup.add(cupMesh);
+  it(cupMesh, "Tasse — boire", () => {
+    const a = (T.local || (T.local = {})).staff;
+    if (a.coffee === "preparing") return say("La tasse n’est pas encore remplie.");
+    if (a.coffee !== "ready") return say("La tasse est vide. Prépare d’abord un café.");
+    a.coffee = "drinking";
+    a.coffeeT = 0;
+    say("Tu prends la tasse et bois ton café.");
+  });
+  const liquid = lcyl(0.114, 0.114, 0.012, 0, 0.025, 0, 0x4b2b18, { n: 8 });
+  st.g.remove(liquid);
+  cup.add(liquid);
+  const stream = lcyl(0.014, 0.014, 0.3, -6.3, 0.99, 7.46, 0x4b2b18, { n: 5 });
+  st.coffee = { cup, liquid, stream, sip: new THREE.Vector3() };
+  mobile(cup, st.localAnim);
+  mobile(stream, st.localAnim);
+  stream.visible = liquid.visible = false;
+  plant(-8.8, 9.7);
+
+  // Cour extérieure : pas de plafond, accès indépendant des objectifs d'ouverture.
+  mkS("cour", rect(-5.2, 5.2, -4.7, 4.7), 0xc7dde0, [16, 38]);
+  const yard = cur;
+  yard.localAnim = [];
+  // Lumière du ciel indépendante du réseau électrique, uniquement dans cette salle.
+  yard.g.add(new THREE.HemisphereLight(0xdcebf0, 0x897456, 0.55));
+  bx(11, 0.2, 10, 0, -0.2, 0, 0x998b74);
+  [-1, 1].forEach((s) => {
+    bx(0.22, 2.3, 10, s * 5.5, 0, 0, 0xb9aa8b);
+    bx(11, 2.3, 0.22, 0, 0, s * 5, 0xb9aa8b);
+  });
+  label("Cour du personnel", 0, 2.4, 4.84, 2);
+  it(bx(1.5, 2.2, 0.12, 0, 0, 4.8, 0x54716d), "Retour à la boutique", () => {
+    doorS();
+    go("shop", 5, 4, 0);
+  });
+  // Banc à gauche : trajet entrée/station libre sur plus de 2 m.
+  cbx(2.7, 0.12, 0.65, -3.4, 0.48, -2.5, 0x8e6242, { s: 1 });
+  cbx(2.7, 0.5, 0.1, -3.4, 0.6, -2.8, 0x8e6242);
+  [-4.4, -2.4].forEach((x) => bx(0.12, 0.48, 0.45, x, 0, -2.5, 0x384b4b));
+  plant(-4.4, 3.5);
+  plant(4.4, -3.6);
+  const ashtray = it(
+    lcyl(0.24, 0.18, 0.12, 3, 0.92, -2, 0x465152, { n: 8 }),
+    "Cendrier — éteindre et jeter",
+    () => {
+      const a = (T.local || (T.local = {})).staff;
+      if (a.smoke === "idle") return say("Le cendrier est à disposition. Rien à jeter.");
+      a.smoke = "idle";
+      a.smokeT = 0;
+      a.ash = true;
+      clk();
+      say("Cigarette éteinte puis déposée dans le cendrier.");
+    },
+  );
+  lcyl(0.08, 0.14, 0.92, 3, 0, -2, 0x465152, { n: 7, s: 1 });
+  const station = it(
+    cbx(0.55, 0.12, 0.35, 3, 1.03, -2.35, 0xd4c2a0),
+    "Pause cigarette — facultative",
+    () => {
+      const a = (T.local || (T.local = {})).staff;
+      if (a.smoke !== "idle")
+        return say("Tu peux maintenant l’éteindre dans le cendrier, ou retourner travailler.");
+      a.smoke = "smoking";
+      a.smokeT = 0;
+      say(
+        "Pause facultative. Aucun objectif ni avantage : utilise ensuite le cendrier pour l’éteindre.",
+      );
+    },
+  );
+  const hand = new THREE.Group();
+  yard.g.add(hand);
+  const hold = (m) => {
+    yard.g.remove(m);
+    hand.add(m);
+    return m;
+  };
+  hold(cbx(0.12, 0.17, 0.08, 0, 0, 0, 0xcba380));
+  hold(cbx(0.15, 0.035, 0.035, -0.03, 0.14, -0.04, 0xcba380));
+  hold(lcyl(0.012, 0.012, 0.18, 0, 0.08, -0.09, 0xeee2cc, { n: 6, rx: Math.PI / 2 }));
+  const ember = hold(ball(0.016, 0, 0.17, -0.18, 0xc66c3f));
+  const puff = hold(ball(0.06, 0, 0.2, -0.18, 0xc2c5bd));
+  puff.material = puff.material.clone();
+  puff.material.transparent = true;
+  puff.material.opacity = 0.24;
+  puff.material.depthWrite = false;
+  const butt = cbx(0.09, 0.02, 0.025, 3, 1.045, -2, 0x9b7552, { ry: 0.4 });
+  mobile(hand, yard.localAnim);
+  mobile(butt, yard.localAnim);
+  hand.visible = butt.visible = false;
+  yard.smoke = { hand, ember, puff, butt };
+  // Références explicites utiles en QA ; aucun proxy de ciblage englobant les meubles.
+  st.staffTargets = { machine, board };
+  yard.staffTargets = { station, ashtray };
+}
+
+/**
+ * Simulation locale : dt seulement, gel en menu/pause/transition. Aucune minuterie JS.
+ * Les états sont conservés entre salles ; seules les animations de la salle active avancent.
+ * Hook à appeler AVANT pickTarget()/rendu pour réactiver les matrices figées par fin1.
+ */
+function localStaffUpd(dt) {
+  const local = T.local || (T.local = {});
+  const a = local.staff;
+  if (!a || ui !== "play" || busy) return;
+  dt = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, 0.05));
+  const active = S[CN];
+  if (!active || !active.localAnim) return;
+  active.localAnim.forEach((o) => {
+    o.matrixAutoUpdate = true;
+  });
+  if (CN === "staff") {
+    const c = active.coffee;
+    if (a.coffee === "preparing") {
+      if (T.bo && !T.pw) {
+        a.coffee = "idle";
+        a.coffeeT = 0;
+        say("La préparation s’arrête : plus de courant. Recommence après le rétablissement.");
+      } else {
+        a.coffeeT += dt;
+        if (a.coffeeT >= 3) {
+          a.coffee = "ready";
+          a.coffeeT = 0;
+          clk();
+          say("Café prêt. Prends la tasse pour boire.");
+        }
+      }
+    } else if (a.coffee === "drinking") {
+      a.coffeeT += dt;
+      if (a.coffeeT >= 2) {
+        a.coffee = "used";
+        a.coffeeT = 0;
+        say("Tasse vide, reposée sur le comptoir.");
+      }
+    }
+    const drinking = a.coffee === "drinking",
+      q = drinking ? Math.sin((Math.PI * a.coffeeT) / 2) : 0;
+    c.sip.set(0.12, -0.25, -0.45).applyQuaternion(cam.quaternion).add(cam.position);
+    c.cup.position.set(-6.3, 0.95, 7.46).lerp(c.sip, q);
+    c.cup.rotation.x = q * 0.9;
+    c.liquid.visible = a.coffee === "ready" || a.coffee === "preparing" || drinking;
+    c.liquid.position.y =
+      0.035 +
+      0.15 *
+        (a.coffee === "preparing"
+          ? Math.min(1, a.coffeeT / 3)
+          : drinking
+            ? Math.max(0, 1 - a.coffeeT / 2)
+            : 1);
+    c.stream.visible = a.coffee === "preparing";
+    c.stream.scale.x = 0.85 + 0.15 * Math.sin(a.coffeeT * 22);
+    const cat = active.cat;
+    a.catT = Math.max(0, a.catT - dt);
+    cat.head.position.y =
+      0.58 + (a.catT > 0 ? 0.08 * Math.sin(((2.6 - a.catT) * Math.PI) / 2.6) : 0);
+    cat.tail.rotation.z = a.catT > 0 ? Math.sin(a.catT * 9) * 0.6 : 0.15;
+    cat.eyes.forEach((eye) => {
+      eye.scale.y = a.catT > 0 ? 0.2 : 1;
+    });
+  } else if (CN === "cour") {
+    const s = active.smoke;
+    if (a.smoke === "smoking") {
+      a.smokeT += dt;
+      if (a.smokeT >= 3.4) {
+        a.smoke = "held";
+        say("Pause terminée. Le cendrier permet d’éteindre et de jeter la cigarette.");
+      }
+    }
+    s.hand.visible = a.smoke !== "idle";
+    s.butt.visible = !!a.ash;
+    const puffing = a.smoke === "smoking",
+      p = puffing ? Math.sin((Math.PI * a.smokeT) / 3.4) : 0;
+    // Main à la première personne, exprimée dans le groupe de la salle, jamais enfant caméra.
+    s.hand.position.set(0.27 - p * 0.1, -0.58 + p * 0.25, -0.65);
+    s.hand.position.applyQuaternion(cam.quaternion).add(cam.position);
+    s.hand.quaternion.copy(cam.quaternion);
+    s.ember.scale.setScalar(puffing ? 1 + p * 0.3 : 0.7);
+    s.puff.visible = puffing && a.smokeT > 1;
+    s.puff.position.y = 0.2 + ((a.smokeT * 0.45) % 0.65);
+    s.puff.scale.setScalar(0.5 + ((a.smokeT * 0.6) % 1));
+  }
+  // Matrices immédiatement cohérentes pour le raycaster, même avant renderer.render().
+  active.g.updateMatrixWorld(true);
+}
+// <<< LP-LOCAL STAFF/COUR
 
 /**
  * Construit le bureau du directeur : dossiers contenant les indices, porte à code et
  * retour à la boutique. Le code est fabriqué par mkCode() pour la tentative en cours.
  */
+/** Restaure les états métier sans relancer une quête achevée ni dupliquer les PNJ. */
+function localRestoreStaff(previous) {
+  NP.forEach((n) => {
+    const saved = previous.find((p) => p.id === n.id),
+      task = n.id === "lea" ? "vitrine" : "prix",
+      choice = n.o.find((o) => T.o && o[1] === T.o[n.id]);
+    if (saved) {
+      const { id, ...state } = saved;
+      Object.assign(n, state);
+      n.g.position.set(n.x, 0, n.z);
+      n.g.rotation.y = n.fy;
+    }
+    if (T.tasks[task]) {
+      n.st = 2;
+      n.tg = null;
+      n.fin(n, n.c || (choice && choice[3]) || 0xf6e8cc);
+    }
+  });
+}
+
+/** État de tentative, indépendant des maillages : null = sol, "porté", ou R1/R2/R3. */
+function localBoxState() {
+  return T.localBoxes || (T.localBoxes = { C1: null, C2: null, C3: null });
+}
+function localCartonCount() {
+  return Object.values(localBoxState()).filter((v) => /^R[123]$/.test(v)).length;
+}
+function localTakeCarton(id) {
+  const boxes = localBoxState();
+  if (!Object.prototype.hasOwnProperty.call(boxes, id) || boxes[id] !== null) return false;
+  if (T.carry) {
+    say("Tu portes déjà " + T.carry + ". Dépose-le dans la réserve avant d’en prendre un autre.");
+    return false;
+  }
+  boxes[id] = "porté";
+  T.carry = id;
+  hud();
+  clk();
+  say(
+    id + " ramassé. Porte nord : dégagement, puis réserve. Un emplacement R1, R2 ou R3 par carton.",
+  );
+  return true;
+}
+function localStoreCarton(slot) {
+  const boxes = localBoxState(),
+    id = T.carry;
+  if (!/^R[123]$/.test(slot)) return false;
+  if (Object.values(boxes).includes(slot)) {
+    say(slot + " est déjà occupé. Choisis un emplacement libre.");
+    return false;
+  }
+  if (!id || boxes[id] !== "porté") {
+    say("Prends d’abord un carton C1, C2 ou C3 au sol dans le magasin.");
+    return false;
+  }
+  boxes[id] = slot;
+  T.carry = 0;
+  T.tasks.carton = localCartonCount() === 3 ? 1 : 0;
+  hud();
+  clk();
+  say(
+    id +
+      " rangé sur " +
+      slot +
+      " : " +
+      localCartonCount() +
+      "/3." +
+      (T.tasks.carton
+        ? " Réserve prête. Termine les autres tâches avant d’ouvrir le magasin."
+        : " Les autres cartons attendent dans le magasin."),
+  );
+  return true;
+}
+
+/** Plaques lisibles, sans interaction ni recoloration du contour cyan existant. */
+function localSign(text, x, y, z, yaw = 0, w = 2.4) {
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(128, Math.ceil((w / 0.3) * 128));
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#193b40";
+  ctx.fillRect(0, 0, canvas.width, 128);
+  ctx.fillStyle = "#fff5da";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "bold 80px Arial";
+  ctx.fillText(text, canvas.width / 2, 64, canvas.width - 20);
+  const map = new THREE.CanvasTexture(canvas);
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, 0.3),
+    new THREE.MeshBasicMaterial({ map, side: THREE.DoubleSide }),
+  );
+  m.position.set(x, y, z);
+  m.rotation.y = yaw;
+  m.userData.keep = 1;
+  cur.g.add(m);
+  return m;
+}
+
+/** Portes en applique devant un mur opaque : transitions natives, pas de faux trou. */
+function localDoor(x, z, side, label, destination, ax, az, ay) {
+  const m = it(
+    cbx(side ? 0.14 : 1.5, 2.25, side ? 1.5 : 0.14, x, 0, z, 0x315a5d, { b: 0.025 }),
+    label,
+    () => {
+      if (!S[destination])
+        return say("Cet accès sera disponible après le raccordement des annexes.");
+      doorS();
+      go(destination, ax, az, ay);
+    },
+  );
+  [-1, 1].forEach((k) =>
+    cbx(
+      side ? 0.18 : 0.1,
+      2.35,
+      side ? 0.1 : 0.18,
+      x + (side ? 0 : k * 0.81),
+      0,
+      z + (side ? k * 0.81 : 0),
+      0xb09b76,
+    ),
+  );
+  cbx(side ? 0.18 : 1.72, 0.12, side ? 1.72 : 0.18, x, 2.3, z, 0xb09b76);
+  return m;
+}
+
+/** Pickups : chaque collision appartient au carton et est retirée avec lui. */
+function localCartons() {
+  const owner = cur;
+  [
+    ["C1", 2.8, 2.8],
+    ["C2", 4.2, 2.8],
+    ["C3", 3.6, 4.1],
+  ].forEach(([id, x, z]) => {
+    if (localBoxState()[id] !== null) return;
+    const collision = [x - 0.35, x + 0.35, z - 0.3, z + 0.3];
+    owner.sol.push(collision);
+    const m = it(cbx(0.7, 0.5, 0.6, x, 0, z, 0xc99a5b), "Carton " + id + " — ramasser", () => {
+      if (!localTakeCarton(id)) return;
+      m.visible = false;
+      const index = owner.sol.indexOf(collision);
+      if (index >= 0) owner.sol.splice(index, 1);
+      owner.it = owner.it.filter((v) => v !== m);
+      hoverSet(null);
+    });
+    // Marquages attachés : aucun ruban ou libellé fantôme après le ramassage.
+    const tape = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.012, 0.61), fm(0xe8d8a8));
+    tape.position.y = 0.256;
+    m.add(tape);
+    const sign = localSign(id, x, 0.29, z + 0.307, 0, 0.42);
+    m.attach(sign);
+    m.userData.keep = 1;
+  });
+}
+
+/** Hook parent : appeler une fois dans build(), avant la boucle fin1(k). */
+function bLocalGround() {
+  bLocalHall();
+  bLocalReserve();
+}
+
+/** Dégagement de service : consignes, distribution et escalier vers staff. */
+function bLocalHall() {
+  mkS("localhall", rect(-3.6, 3.6, -5.6, 5.6), 0xd3ddd8);
+  room(-4, 4, -6, 6, 3.6, tileT, 0xd9ded3);
+  L(0, 3, 2, 0xffe7bc, 0.8, 14);
+  L(0, 3, -3, 0xffe7bc, 0.7, 12);
+  localDoor(0, 5.87, false, "Porte du magasin", "shop", 0, -4.3, Math.PI);
+  localSign("MAGASIN · RDC", 0, 2.65, 5.75, Math.PI);
+  localDoor(-3.87, -1, true, "Porte de la réserve", "reserve", 3.5, 1.5, Math.PI / 2);
+  localSign("RÉSERVE · R1 / R2 / R3", -3.75, 2.65, -1, Math.PI / 2);
+  // Escalier représenté en volume ; transition au pied car le moteur marche en x/z.
+  for (let i = 0; i < 8; i++) {
+    cbx(1.65, 0.18 * (i + 1), 0.36, 2.25, 0, -1.5 - i * 0.36, 0x8c9692);
+  }
+  cur.sol.push([1.35, 3.15, -4.5, -1.25]);
+  [-1, 1].forEach((k) => {
+    for (let i = 0; i < 4; i++)
+      lcyl(0.025, 0.025, 1, 2.25 + k * 0.87, i * 0.36, -1.5 - i * 0.72, 0x33484d);
+    const rail = cbx(0.06, 0.06, 3.2, 2.25 + k * 0.87, 1.7, -2.65, 0x33484d);
+    rail.rotation.x = 0.47;
+  });
+  const step = it(
+    cbx(1.65, 0.18, 0.18, 2.25, 0, -1.23, 0x8c9692),
+    "Escalier — monter à l’étage du personnel",
+    () => {
+      if (!S.staff) return say("L’étage du personnel attend son raccordement.");
+      doorS();
+      go("staff", 0, 4, 0);
+    },
+  );
+  step.userData.keep = 1;
+  localSign("ESCALIER · ÉTAGE", 2, 2.65, -5.85, 0, 2.6);
+  localSign("E AU PIED DES MARCHES POUR MONTER", 2, 1.1, -1.17, 0, 2.65);
+  localSign("DÉGAGEMENT · RDC", -1.4, 2.8, -5.85, 0, 3.4);
+  const board = it(cbx(2.3, 1.15, 0.12, -1.1, 0.95, -5.82, 0x193b40), "Consignes du RDC", () =>
+    say(
+      "Magasin au sud. Réserve à l’ouest : trois cartons, trois emplacements. Escalier au nord-est : personnel. Termine caisse, enseigne, vitrine et prix ; rétablis le courant si nécessaire, puis ouvre l’entrée du magasin.",
+      12000,
+    ),
+  );
+  localSign("CONSIGNES · VISER ET APPUYER SUR E", -1.1, 1.55, -5.74, 0, 2.2);
+  board.userData.keep = 1;
+  bx(0.09, 0.012, 8.5, -0.25, 0.005, 0.3, 0xbda368);
+}
+
+/** Vraie réserve : stockage hors des circulations, trois zones de dépôt distinctes. */
+function bLocalReserve() {
+  mkS("reserve", rect(-4.6, 4.6, -3.6, 3.6), 0xc8d4cf);
+  room(-5, 5, -4, 4, 3.2, tileT, 0xd5d4c7);
+  L(-2, 2.8, 0, 0xffe9c3, 0.8, 14);
+  L(2, 2.8, 0, 0xffe9c3, 0.7, 12);
+  localDoor(4.87, 1.5, true, "Porte du dégagement", "localhall", -2.5, -1, -Math.PI / 2);
+  localSign("DÉGAGEMENT · MAGASIN · ESCALIER", 4.75, 2.65, 1.5, -Math.PI / 2, 3);
+  localSign("RÉSERVE · UN CARTON PAR EMPLACEMENT", 0, 2.65, -3.84, 0, 5.6);
+  shelf(-4.55, 0.2, 0.65, 4, 1);
+  shelf(-1, 3.5, 3.3, 0.6, 0);
+  localSign("STOCK · ALLÉE À LAISSER LIBRE", -1, 2.1, 3.15, Math.PI, 3.4);
+  [
+    ["R1", -2.6],
+    ["R2", 0],
+    ["R3", 2.6],
+  ].forEach(([slot, x]) => {
+    cbx(1.8, 0.12, 1.2, x, 0, -2.4, 0x9b7448, { s: 1 });
+    const stored = Object.keys(localBoxState()).find((id) => localBoxState()[id] === slot);
+    const owner = cur;
+    const draw = (id) => {
+      const keep = cur;
+      cur = owner;
+      const m = cbx(0.7, 0.5, 0.6, x, 0.12, -2.4, 0xc99a5b);
+      m.userData.keep = 1;
+      localSign(id + " · " + slot, x, 0.4, -2.085, 0, 0.65);
+      cur = keep;
+    };
+    if (stored) draw(stored);
+    // Borne devant la palette, assez haute pour viser sans que le carton la masque.
+    // Pied et socle visuels : la borne est posée au sol, pas suspendue dans l’allée.
+    cbx(0.12, 0.72, 0.1, x, 0, -1.76, 0x315a5d, { b: 0.015 });
+    cbx(0.42, 0.04, 0.34, x, 0, -1.76, 0x253c3e, { b: 0.012 });
+    const target = it(
+      cbx(0.8, 0.35, 0.12, x, 0.7, -1.74, 0x315a5d),
+      "Dépôt " + slot + " — poser le carton",
+      () => {
+        const id = T.carry;
+        if (localStoreCarton(slot)) draw(id);
+      },
+    );
+    target.userData.keep = 1;
+    localSign(slot, x, 0.88, -1.67, 0, 0.6);
+    localSign(slot + " · DÉPÔT", x, 1.75, -3.82, 0, 1.7);
+  });
+}
+
 function bOff() {
   mkS("office", rect(-3.6, 3.6, -2.6, 2.6), 0x222222);
   room(-4, 4, -3, 3, 3, woodT, 0x8f98a6);
@@ -9496,7 +10155,7 @@ function dossier(i) {
  */
 const TK = [
   ["caisse", "Allumer la caisse"],
-  ["carton", "Ranger le carton à la réserve"],
+  ["carton", "Ranger les cartons à la réserve"],
   ["enseigne", "Allumer l’enseigne"],
   ["vitrine", "Léa : préparer la vitrine"],
   ["prix", "Karim : afficher les prix"],
@@ -9509,9 +10168,25 @@ const TK = [
 function hud() {
   const bl = T.bo && !T.pw,
     tk = SV.gone ? TK.slice(0, 3) : TK;
-  $("hud").innerHTML = bl
-    ? "<b>Panne de courant</b>"
-    : tk.map((k) => (T.tasks[k[0]] ? "☑ " : "☐ ") + k[1]).join("<br>");
+  const count = localCartonCount(),
+    cartons =
+      "Cartons rangés : " + count + "/3" + (T.carry ? " · Porté : " + T.carry : " · Mains libres"),
+    place = {
+      shop: "RDC · Magasin",
+      localhall: "RDC · Dégagement et escalier",
+      reserve: "RDC · Réserve",
+      staff: "Étage · Personnel",
+      cour: "Extérieur · Cour",
+    }[CN];
+  $("hud").innerHTML =
+    (place ? "<b>" + place + "</b><br>" : "") +
+    (bl ? "<b>Panne de courant</b><br>" : "") +
+    tk
+      .map((k) => {
+        const done = k[0] === "carton" ? count === 3 : T.tasks[k[0]];
+        return (done ? "☑ " : "☐ ") + (k[0] === "carton" ? cartons : k[1]);
+      })
+      .join("<br>");
 }
 
 /**
@@ -9634,6 +10309,7 @@ function set(n, x, z, y) {
     setDark(!!T.bo && !T.pw);
   }
   if (T && T.fl8) setLamp();
+  hud();
 }
 
 /**
@@ -9717,6 +10393,7 @@ function newAttempt() {
     t: 0,
     att: 0,
     carry: 0,
+    localBoxes: { C1: null, C2: null, C3: null },
     rb: null,
     open: 0,
     bo: !!SV.bo,
@@ -9740,7 +10417,7 @@ function newAttempt() {
   set("shop", 0, 4, 0);
   lockReq();
   say(
-    "Bonjour, bonjour ! Nouvelle journée, nouvelle boutique. Il y a la caisse à allumer, un carton à ranger et l’enseigne." +
+    "Bonjour, bonjour ! Nouvelle journée, nouvelle boutique. Il y a la caisse à allumer, trois cartons C1, C2 et C3 à ranger dans la réserve et l’enseigne." +
       (T.bo || SV.gone ? "" : " Léa et Karim te diront pour le reste.") +
       " Rien de compliqué. Rien de dangereux non plus.",
   );
@@ -11221,6 +11898,9 @@ function upd(dt) {
       m.rotation.x += dt * 0.3;
       m.rotation.y += dt * 0.2 * (i % 2 ? 1 : -1);
     });
+
+  // Les pauses du personnel suivent le temps de jeu, jamais le temps du navigateur.
+  localStaffUpd(dt);
 
   // Ciblage une image sur deux : cible visible à moins de 3,4 m, obstacle opaque, contour et libellé.
   if (++HF % 2) return;
