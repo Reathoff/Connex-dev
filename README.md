@@ -1,7 +1,7 @@
-# Connex — version jouable
+# Connex — version restaurée après les shaders
 
 [Jouer](https://reathoff.github.io/Connex-dev/)
 
-Bâtiment continu, magasin réaménagé et fond de caisse à récupérer obligatoirement à l’étage avant de préparer la caisse. Les gros panneaux directionnels sont retirés ; les portes narratives et les fins sont conservées.
+Retour à la map, à la mission et aux personnages de la version juste après les shaders fixes, avant les modifications suivantes. Shaders conservés ; agrandissement, étage et fond de caisse ajoutés ensuite annulés.
 
-Distribution statique : Three.js r128 inclus dans `vendor/`. Le dépôt de développement principal reste privé.
+Three.js r128 est fourni dans `vendor/`. Le dépôt principal reste privé.
