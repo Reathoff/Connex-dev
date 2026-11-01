@@ -483,6 +483,12 @@ body.dlg #c {
 .fullscreen-note[hidden] { display: none; }
 [data-fullscreen-toggle]:disabled { opacity: 0.7; cursor: wait; }
 
+/* Repérage du quartier, sans empiéter sur les objectifs ni le bouton tactile. */
+#worldloc { position: fixed; bottom: max(14px, env(safe-area-inset-bottom)); left: 14px; max-width: min(235px, 61vw); padding: 8px 10px; color: var(--ink); background: rgba(31,29,23,.9); border-left: 3px solid #b7cba5; font-size: 14px; line-height: 1.4; pointer-events: none; z-index: 5; }
+#worldloc[hidden], #cityskip[hidden] { display: none; }
+#cityskip { position: fixed; right: 16px; top: 72px; z-index: 8; }
+@media(max-width:600px) { #cityskip { top: 142px; } }
+
     </style>
   </head>
   <body>
@@ -492,6 +498,8 @@ body.dlg #c {
     <div id="x"></div>
     <!-- Objectifs de la tentative. -->
     <div id="hud"></div>
+    <div id="worldloc" hidden aria-live="polite"></div>
+    <button id="cityskip" hidden>Passer la séquence</button>
     <!-- Bouton de pause. -->
     <button id="mb">☰</button>
     <!-- Nom de l’objet visé. -->
@@ -856,11 +864,12 @@ const NM = [
   "Fin mystère n°2",
 ];
 NM.B1 = "Entorse au pied";
+NM.B2 = "La ville dans la ville";
 /**
  * Transforme un numéro en identifiant stable : 3 devient FIN-003 et B1 devient FIN-B001.
  * C’est cet identifiant qui est enregistré, pas le titre affiché.
  */
-const fid = (n) => (n === "B1" ? "FIN-B001" : "FIN-" + String(n).padStart(3, "0"));
+const fid = (n) => /^B\d+$/.test(String(n)) ? "FIN-B" + String(n).slice(1).padStart(3, "0") : "FIN-" + String(n).padStart(3, "0");
 
 /**
  * SV = sauvegarde durable du navigateur. main/bonus : fins découvertes ; star/target :
@@ -1393,6 +1402,7 @@ const stepS = () => {
       0.1,
       {
         shop: 650,
+        back: 550, cour: 1000, ville: 850, maquette: 650,
         office: 550,
         cam: 2400,
         rb: 600,
@@ -1496,6 +1506,8 @@ function mus() {
   if (nx < now) nx = now + 0.05;
   const m = finalM
       ? "fin"
+      : ["back", "cour", "ville", "maquette"].includes(CN)
+        ? "shop"
       : CN === "circus2"
         ? "circus"
         : CN === "pods"
@@ -6181,6 +6193,7 @@ function build() {
   bRuin();
   bGen();
   bDark();
+  bWorld();
   for (const k in S) fin1(k);
 }
 
@@ -6289,7 +6302,8 @@ function bShop() {
   win(-3.5, 1.5, -5.88);
   win(3.5, 1.5, -5.88);
   shelf(-6.6, -1.5, 0.5, 4, 1);
-  shelf(0, -5.6, 3, 0.5, 0);
+  // Le passage arrière occupe désormais le centre du mur du fond.
+  worldMoved(3.1, 0, () => {
   // Comptoir : socle en retrait, caisson chanfreiné, panneaux en relief, plateau.
   shopBox(3.9, 0.1, 0.9, 0, 0, -2.5, 0x6a3f1a);
   cbx(4, 0.9, 1, 0, 0.1, -2.5, 0x8a5a2b, { s: 1, b: 0.03 });
@@ -6372,6 +6386,8 @@ function bShop() {
   cbx(0.24, 0.1, 0.03, -1, 1.4, -2.66, 0x20262e, { b: 0.008, rx: -0.2 });
   shopBox(0.07, 0.07, 0.004, -0.83, 1.35, -2.62, 0xf6e8cc, { rx: -0.3 });
 
+  });
+
   // Interaction « Palette de la réserve » : le nom sert à l’indication de visée, et la fonction passée en dernier définit l’action.
   it(
     shopMesh(
@@ -6419,7 +6435,7 @@ function bShop() {
     }
     clk();
     say(
-      "Ce carton pèse exactement ce qu’il faut. Porte-le à la palette de la réserve, au fond à gauche.",
+      "Ce carton pèse exactement ce qu’il faut. Passe par la porte du fond, puis dépose-le sur la palette dans la réserve à gauche.",
     );
   });
   shopMesh(
@@ -6506,60 +6522,11 @@ function bShop() {
   shopBox(0.8, 0.025, 0.02, 0, 1.64, 5.805, 0x4a2a14);
   shopBox(1.1, 0.14, 0.01, 0, 0.04, 5.835, 0xd4b060);
 
-  // Interaction « Porte du bureau du directeur » : le nom sert à l’indication de visée, et la fonction passée en dernier définit l’action. Destinations possibles, selon les conditions ci-dessous : office.
-  it(
-    cbx(0.12, 2.2, 1.1, 6.9, 0, -3.2, 0x3a2a22, { b: 0.02 }),
-    "Porte du bureau du directeur",
-    () => {
-      T.att = (T.att || 0) + 1;
-      const A = [
-        "Le bureau du directeur ? Non, non, non. Ce n’est pas au programme.",
-        "Je t’ai dit que c’était fermé. Enfin, je crois. Je peux me tromper, mais pas aujourd’hui.",
-        "Fais-moi confiance : il n’y a rien d’intéressant là-dedans. Absolument rien.",
-      ];
-      if (T.att < 4) return say(A[T.att - 1]);
-      say("Bon. Évidemment. Tu es du genre à pousser les portes. Très bien, je n’ai rien vu.");
-      doorS();
-      go("office", -3, 0, -Math.PI / 2);
-    },
-  );
-  bx(0.14, 0.5, 0.5, 6.86, 1.5, -3.2, 0, { m: sky });
-  cbx(0.14, 0.15, 1.4, 6.93, 2.2, -3.2, 0x4a2a14, { b: 0.02 });
-  [-1, 1].forEach((k) => {
-    cbx(0.14, 2.2, 0.15, 6.93, 0, -3.2 + k * 0.625, 0x4a2a14, { b: 0.02 });
-    shopBox(0.03, 0.6, 0.05, 6.78, 1.45, -3.2 + k * 0.275, 0x4a2a14);
-    shopBox(0.03, 0.05, 0.6, 6.78, k < 0 ? 1.45 : 2.0, -3.2, 0x4a2a14);
-  });
-  shopPanel(0.8, 0.8, 0.02, 0.05, 6.84, 0.68, -3.2, 0x4a2a14, -Math.PI / 2);
-  shopBox(0.01, 0.07, 0.26, 6.833, 1.28, -3.2, 0xd4b060);
-
-  // Interaction « Petite porte » : le nom sert à l’indication de visée, et la fonction passée en dernier définit l’action. Destinations possibles, selon les conditions ci-dessous : ruin, rb.
-  it(cbx(0.12, 2.1, 1, -6.9, 0, 3.5, 0x5a4a3a, { b: 0.02 }), "Petite porte", () => {
-    say("Ça ? Un placard. Aucun intérêt. Mais bon, tu fais ce que tu veux. Visiblement.");
-    doorS();
-    T.bo && !T.pw ? go("ruin", 0, 0.8, 0) : go("rb", 0, 2.2, 0);
-  });
-
-  // Interaction « Couloir principal » : le nom sert à l’indication de visée, et la fonction passée en dernier définit l’action. Destinations possibles, selon les conditions ci-dessous : colis.
-  it(cbx(0.12, 2.2, 1.4, 6.9, 0, 1.8, 0x4a4a52, { b: 0.02 }), "Couloir principal", () => {
-    doorS();
-    go("colis", 0, -1.5, 0);
-  });
-  cbx(0.14, 2.3, 1.2, -6.93, 0, 3.5, 0x2b1d12, { b: 0.02 });
-  shopPanel(0.66, 0.86, 0.02, 0.04, -6.84, 1.45, 3.5, lpTint(0x5a4a3a, 0.85), Math.PI / 2);
-  for (let i = 0; i < 4; i++) shopBox(0.02, 0.03, 0.56, -6.835, 0.3 + i * 0.07, 3.5, 0x2b1d12);
-  cbx(0.14, 0.15, 1.7, 6.93, 2.2, 1.8, 0x2a2a32, { b: 0.02 });
-  [-1, 1].forEach((k) => cbx(0.14, 2.2, 0.15, 6.93, 0, 1.8 + k * 0.775, 0x2a2a32, { b: 0.02 }));
-  const hb = lcyl(0.2, 0.2, 0.03, 0, 0, 0, 0x2a2a32, { n: 8, rz: Math.PI / 2 });
-  hb.position.set(6.835, 1.6, 1.8);
-  const hv = lcyl(0.16, 0.16, 0.03, 0, 0, 0, 0x20262e, { n: 8, rz: Math.PI / 2 });
-  hv.position.set(6.83, 1.6, 1.8);
-  shopBox(0.01, 0.16, 1.2, 6.835, 0.04, 1.8, 0x8a8a92);
   plant(-6.3, 4.7);
   plant(6.2, 5.2);
   plant(6.2, -5.2);
   plant(-6.3, 5.4);
-  desk(4.5, -4.6);
+  // Les bureaux sont à présent derrière le magasin.
   lamp(-5.5, -5.2);
   lamp(5.8, 4.6);
   disp(-4.2, 1.6);
@@ -6578,6 +6545,7 @@ function bShop() {
   cbx(0.6, 0.42, 0.1, -2.2, 0.5, 3.2, 0x2f7a78, { b: 0.04, rx: 0.12 });
   [-2.7, -1.7].forEach((xx) => cbx(0.16, 0.44, 0.82, xx, 0.36, 3, 0x266866, { b: 0.06 }));
   lrock(0.14, -2.45, 0.62, 3.1, 0xe0a030, { d: 0, sx: 1, sy: 0.8, sz: 0.45, j: 0.02 });
+  worldMoved(-3.1, 0, () => {
   // Table du centre (vide, prête pour la vitrine) : socle à panneaux et plateau.
   shopBox(0.96, 0.05, 0.46, 0, 0, 1.3, 0x6a3f1a);
   cbx(1.0, 0.3, 0.5, 0, 0.05, 1.3, 0x8a5526, { b: 0.03 });
@@ -6586,6 +6554,7 @@ function bShop() {
   );
   cbx(1.1, 0.05, 0.6, 0, 0.35, 1.3, 0xb8793a, { s: 1, b: 0.015 });
   lcyl(0.16, 0.16, 0.005, 0, 0.4, 1.3, 0xf0ede0, { n: 8 });
+  });
   if (SV.gone) T.tasks.vitrine = T.tasks.prix = 1;
   if (T.bo && !T.pw) {
     T.tasks.vitrine = T.tasks.prix = 1;
@@ -7619,6 +7588,10 @@ function fixShop() {
   T.rs = 1;
   sc.remove(S.shop.g);
   bShop();
+  // La palette est déjà dans la réserve ; la reconstruction ne doit pas la dupliquer.
+  const pallet = S.shop.it.find(m => m.userData.name === "Palette de la réserve");
+  if (pallet) { pallet.parent.remove(pallet); S.shop.it = S.shop.it.filter(m => m !== pallet); }
+  worldShopFinish();
   fin1("shop");
   hud();
 }
@@ -9327,6 +9300,923 @@ function dossier(i) {
 /* ---- états / UI ---- */
 
 // ============================================================================
+// >>> CONNEX WORLD — magasin, arrière-boutique, cour, ville et maquette.
+// Les univers et les déclencheurs des dix fins principales sont conservés.
+const CITY_SPEC = {"lots":[{"id":"shop","name":"LE MAGASIN","x":0,"z":-6,"w":20,"d":24,"h":4.6,"color":14274751},{"id":"passage","name":"PASSAGE OUEST","x":-25,"z":-7,"w":10,"d":14,"h":9.4,"color":14206110},{"id":"colis","name":"QUAI DES COLIS","x":25,"z":-7,"w":10,"d":14,"h":6.6,"color":11843249},{"id":"archives","name":"ARCHIVES MUNICIPALES","x":25,"z":-21.5,"w":10,"d":8,"h":9.6,"color":14275007},{"id":"cafe","name":"CAFÉ DU COIN","x":-25,"z":23,"w":10,"d":10,"h":7.2,"color":14464666},{"id":"poste","name":"POSTE ÉLECTRIQUE","x":25,"z":23,"w":10,"d":10,"h":4.2,"color":12170925}],"markers":[{"id":"jardin","name":"Jardin des tilleuls","x":-26.7,"z":-26.55},{"id":"archives","name":"Archives municipales","x":19.6,"z":-24.6},{"id":"cafe","name":"Café du coin","x":-19.6,"z":19.3},{"id":"poste","name":"Poste électrique","x":19.6,"z":23}],"model":{"x":0,"z":25},"bounds":[-33,33,-35,35]}, WORLD_SIGN_CACHE = {};
+
+/** État local à une tentative : aucun ancien identifiant de sauvegarde ne change. */
+function worldState() {
+  return T.world || (T.world = { seen: {}, returns: {}, coffee: 0, coffeeTime: 0 });
+}
+
+/** Déplace les objets ET leurs collisions créés pendant une construction. */
+function worldMoved(dx, dz, fn) {
+  const g = cur.g, first = g.children.length, solid = cur.sol.length;
+  const result = fn();
+  g.children.slice(first).forEach(m => { m.position.x += dx; m.position.z += dz; });
+  cur.sol.slice(solid).forEach(q => { q[0] += dx; q[1] += dx; q[2] += dz; q[3] += dz; });
+  return result;
+}
+
+/** Signalétique sobre et réaliste : plaques claires, sortie verte, enseignes peintes. Aucun panneau bleu. */
+const WORLD_SIGN = {
+  plate:{bg:"#f1eee6",fg:"#292825",line:"#8f8a80"},
+  exit:{bg:"#1f7a46",fg:"#ffffff",lit:1},
+  shop:{bg:"#35271c",fg:"#eee0bf",line:"#a7865a",serif:1},
+  cafe:{bg:"#5b2124",fg:"#f2e4c4",line:"#c8ab79",serif:1},
+  stone:{bg:"#d5ccb7",fg:"#4b4235",serif:1},
+  brass:{bg:"#b38e52",fg:"#2c2213",line:"#79602f",serif:1},
+  works:{bg:"#f0a21a",fg:"#1b1b1b",line:"#1b1b1b"},
+  white:{bg:"#f7f5ef",fg:"#1f1f1f",line:"#1f1f1f"},
+  green:{bg:"#2e6a3b",fg:"#f3f0e4",line:"#2e6a3b"},
+  red:{bg:"#8c2a27",fg:"#f4ecd9",line:"#8c2a27"},
+  paper:{bg:"#f3eee2",fg:"#2f2a23"},
+  screen:{bg:"#111312",fg:"#e8e8e0",lit:1}
+};
+const WORLD_TUBE = new THREE.MeshBasicMaterial({ color: 0xfdf6e4 });
+
+/** Police d’une enseigne : serif gravé pour la pierre et le laiton, sans empattement ailleurs. */
+function worldFont(st,weight,size) {
+  return weight+" "+size+"px "+(st.serif?"Georgia, 'Times New Roman', serif":"Arial, Helvetica, sans-serif");
+}
+
+/** Écrit les lignes d’une enseigne, centrées et réduites si besoin, avec filet et ombre selon le style. */
+function worldSignText(c,W,H,lines,st) {
+  const pad=Math.round(Math.min(W,H)*.1);
+  if(st.line){c.strokeStyle=st.line;c.lineWidth=Math.max(3,Math.round(Math.min(W,H)*.04));c.strokeRect(pad*.45,pad*.45,W-pad*.9,H-pad*.9);}
+  c.fillStyle=st.fg;c.textAlign="center";c.textBaseline="middle";
+  const lh=(H-pad*2)/lines.length;
+  lines.forEach((text,i)=>{
+    const weight=i===0?"700":"400";let size=Math.round(lh*(i===0?.72:.6));
+    c.font=worldFont(st,weight,size);
+    while(c.measureText(text).width>W-pad*2.4&&size>10)c.font=worldFont(st,weight,--size);
+    c.fillText(text,W/2,pad+lh*(i+.54));
+  });
+}
+
+/** Panneau texturé et éclairé comme le décor ; il ne bloque jamais la visée d'un objet. */
+function worldSign(lines,x,y,z,w,h,angle=0,style="plate",paint=null,tag="") {
+  const st=WORLD_SIGN[style]||WORLD_SIGN.plate, key=[lines.join("|"),style,w.toFixed(2),h.toFixed(2),tag].join("/");
+  let mat=WORLD_SIGN_CACHE[key];
+  if(!mat) {
+    const r=w/h, big=r>=6?2048:1024, W=r>=1?big:Math.max(96,Math.round(1024*r)), H=r>=1?Math.max(64,Math.round(big/r)):1024;
+    const canvas=document.createElement("canvas");canvas.width=W;canvas.height=H;
+    const c=canvas.getContext("2d");c.fillStyle=st.bg;c.fillRect(0,0,W,H);
+    (paint||worldSignText)(c,W,H,lines,st);
+    const t=new THREE.CanvasTexture(canvas);t.minFilter=THREE.LinearFilter;
+    mat=WORLD_SIGN_CACHE[key]=st.lit?new THREE.MeshBasicMaterial({map:t}):new THREE.MeshPhongMaterial({map:t,shininess:8,specular:0x141414});
+  }
+  const m=new THREE.Mesh(new THREE.PlaneGeometry(w,h),mat);
+  m.position.set(x,y,z);m.rotation.y=angle;m.userData.worldSign=1;cur.g.add(m);return m;
+}
+
+/** Petite plaque murale dimensionnée d'après son texte, comme une vraie signalétique de porte. */
+function worldPlate(text,x,y,z,angle,style="plate",h=.18) {
+  const lines=Array.isArray(text)?text:[text], n=Math.max(...lines.map(s=>s.length)), hh=h*(lines.length>1?1.75:1);
+  return worldSign(lines,x,y,z,Math.min(3.4,Math.max(.5,.16+n*h*.42)),hh,angle,style);
+}
+
+/** Pictogramme blanc normalisé de sortie de secours (silhouette, porte et flèche) sur fond vert. */
+function worldExitPaint(c,W,H) {
+  c.fillStyle="#fff";c.strokeStyle="#fff";c.lineCap="round";c.lineJoin="round";c.lineWidth=H*.075;
+  c.strokeRect(W*.06,H*.17,H*.48,H*.66);
+  const x=W*.06+H*.7,y=H*.3;c.beginPath();c.arc(x+H*.1,y,H*.075,0,Math.PI*2);c.fill();
+  c.beginPath();c.moveTo(x+H*.06,y+H*.12);c.lineTo(x-H*.02,y+H*.36);c.lineTo(x-H*.16,y+H*.56);
+  c.moveTo(x-H*.02,y+H*.36);c.lineTo(x+H*.13,y+H*.47);c.lineTo(x+H*.1,y+H*.6);
+  c.moveTo(x+H*.05,y+H*.16);c.lineTo(x+H*.22,y+H*.25);c.moveTo(x+H*.03,y+H*.17);c.lineTo(x-H*.13,y+H*.24);c.stroke();
+  c.beginPath();c.moveTo(W*.88,H*.5);c.lineTo(W*.8,H*.36);c.moveTo(W*.88,H*.5);c.lineTo(W*.8,H*.64);c.moveTo(W*.88,H*.5);c.lineTo(W*.72,H*.5);c.stroke();
+  c.font="700 "+Math.round(H*.36)+"px Arial, Helvetica, sans-serif";c.textAlign="center";c.textBaseline="middle";c.fillText("SORTIE",W*.52,H*.53);
+}
+
+/** Pupitre d'information municipal : titre, plan du quartier et point « Vous êtes ici ». */
+function worldInfoPaint(q) {
+  return (c,W,H)=>{
+    c.fillStyle="#f3eee2";c.fillRect(0,0,W,H);c.fillStyle="#4a3b2e";c.fillRect(0,0,W,H*.19);
+    c.fillStyle="#f3eee2";c.textAlign="center";c.textBaseline="middle";
+    let s=Math.round(H*.095);c.font="700 "+s+"px Georgia, serif";
+    while(c.measureText(q.name.toUpperCase()).width>W*.88&&s>10)c.font="700 "+(--s)+"px Georgia, serif";
+    c.fillText(q.name.toUpperCase(),W/2,H*.098);
+    const mx=W*.08,my=H*.25,mw=W*.84,mh=H*.58,X=v=>mx+(v+33)/66*mw,Z=v=>my+(v+35)/70*mh;
+    c.fillStyle="#e6dfcf";c.fillRect(mx,my,mw,mh);
+    c.fillStyle="#a9b98f";c.fillRect(X(-30.8),Z(-26.3),X(-19.2)-X(-30.8),Z(-17.2)-Z(-26.3));
+    c.fillStyle="#d3c8b0";c.fillRect(X(-10),Z(18),X(10)-X(-10),Z(32)-Z(18));
+    c.fillStyle="#8e8b85";
+    for(const x of [-15,15])c.fillRect(X(x-3),Z(-34),X(3)-X(-3),Z(35)-Z(-34));
+    for(const z of [-31,14])c.fillRect(mx,Z(z-3),mw,Z(3)-Z(-3));
+    c.fillStyle="#c4ad8c";
+    for(const l of CITY_SPEC.lots)c.fillRect(X(l.x-l.w/2),Z(l.z-l.d/2),X(l.w)-X(0),Z(l.d)-Z(0));
+    c.fillStyle="#bdb5a5";c.fillRect(X(-10),Z(-27),X(10)-X(-10),Z(-18)-Z(-27));
+    c.strokeStyle="#6f6559";c.lineWidth=3;c.strokeRect(mx,my,mw,mh);
+    c.fillStyle="#b32a22";c.beginPath();c.arc(X(q.x),Z(q.z),H*.024,0,Math.PI*2);c.fill();
+    c.strokeStyle="#fff";c.lineWidth=4;c.stroke();
+    c.fillStyle="#2f2a23";c.textAlign="left";c.font="700 "+Math.round(H*.05)+"px Arial, sans-serif";c.fillText("PLAN DU QUARTIER",mx,H*.89);
+    c.fillStyle="#b32a22";c.textAlign="right";c.fillText("● VOUS ÊTES ICI",mx+mw,H*.89);
+    c.fillStyle="#6b6153";c.textAlign="center";c.font="400 "+Math.round(H*.036)+"px Arial, sans-serif";c.fillText("Mairie · Patrimoine et vie du quartier",W/2,H*.955);
+  };
+}
+
+/** Vitrines vues de la rue : intérieur chaud, rayonnages ou comptoir, reflet du verre. */
+function worldVitrinePaint(kind) {
+  return (c,W,H)=>{
+    const R=lpRng(kind==="cafe"?77:31),g=c.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,"#56412d");g.addColorStop(1,"#2b2119");c.fillStyle=g;c.fillRect(0,0,W,H);
+    if(kind==="cafe") {
+      c.fillStyle="#3b2a1f";c.fillRect(0,H*.2,W,H*.06);
+      for(let x=W*.04;x<W*.96;x+=W*.035){c.fillStyle=["#5d3a24","#7a5a2e","#3f4b33","#8c6a3d"][Math.floor(R()*4)];c.fillRect(x,H*.08,W*.018,H*.12);}
+      c.fillStyle="#6e4a30";c.fillRect(0,H*.6,W,H*.4);c.fillStyle="#8a6040";c.fillRect(0,H*.6,W,H*.04);
+      for(const x of [.2,.5,.8]){const r=c.createRadialGradient(W*x,H*.34,2,W*x,H*.34,H*.2);r.addColorStop(0,"rgba(255,220,160,.9)");r.addColorStop(1,"rgba(255,220,160,0)");c.fillStyle=r;c.fillRect(0,0,W,H);}
+    } else {
+      for(let row=0;row<4;row++){
+        const y=H*(.2+row*.19);c.fillStyle="#6b4a2c";c.fillRect(W*.03,y,W*.94,H*.02);
+        for(let x=W*.04;x<W*.95;){const bw=W*(.011+R()*.016),bh=H*(.08+R()*.06);
+          c.fillStyle=["#8c3b2e","#3e5a43","#c09a52","#6b5a6a","#a8623a","#d8cfbd","#4f4a3f","#7d6a4f"][Math.floor(R()*8)];
+          c.fillRect(x,y-bh,bw,bh);x+=bw+W*.003;}
+      }
+      c.fillStyle="#7a5636";c.fillRect(W*.28,H*.86,W*.44,H*.05);
+      for(let i=0;i<6;i++){c.fillStyle=["#e8dcc2","#8c3b2e","#c09a52"][i%3];c.fillRect(W*(.31+i*.065),H*(.8-(i%2)*.02),W*.05,H*.06);}
+    }
+    const r=c.createLinearGradient(0,0,W,H*.6);
+    r.addColorStop(0,"rgba(255,255,255,.18)");r.addColorStop(.3,"rgba(255,255,255,.03)");r.addColorStop(.45,"rgba(255,255,255,.14)");r.addColorStop(.6,"rgba(255,255,255,0)");
+    c.fillStyle=r;c.fillRect(0,0,W,H);
+  };
+}
+
+/** Porte en bois peinte pour les façades fermées du décor lointain. */
+function worldClosedDoorPaint(c,W,H) {
+  const g=c.createLinearGradient(0,0,0,H);g.addColorStop(0,"#4c3a2a");g.addColorStop(1,"#241b14");c.fillStyle=g;c.fillRect(0,0,W,H);
+  c.strokeStyle="#c9b796";c.lineWidth=W*.012;c.beginPath();c.moveTo(W*.36,H*.12);c.lineTo(W*.5,H*.05);c.lineTo(W*.64,H*.12);c.stroke();
+  c.fillStyle="#f6f2e8";c.fillRect(W*.2,H*.12,W*.6,H*.17);c.strokeStyle="#9b1f1f";c.lineWidth=W*.015;c.strokeRect(W*.22,H*.13,W*.56,H*.15);
+  c.fillStyle="#9b1f1f";c.textAlign="center";c.textBaseline="middle";c.font="700 "+Math.round(H*.085)+"px Arial, sans-serif";c.fillText("FERMÉ",W/2,H*.207);
+  const r=c.createLinearGradient(0,0,W,H);r.addColorStop(.2,"rgba(255,255,255,.12)");r.addColorStop(.5,"rgba(255,255,255,0)");c.fillStyle=r;c.fillRect(0,0,W,H);
+}
+
+/** Tableau de liège avec trois feuilles punaisées pour les consignes du personnel. */
+function worldNoticePaint(c,W,H) {
+  c.fillStyle="#b08657";c.fillRect(0,0,W,H);const R=lpRng(9);
+  for(let i=0;i<900;i++){c.fillStyle=R()>.5?"rgba(90,60,30,.25)":"rgba(230,200,150,.2)";c.fillRect(R()*W,R()*H,3,3);}
+  c.strokeStyle="#6e5236";c.lineWidth=W*.02;c.strokeRect(0,0,W,H);
+  c.fillStyle="#f6f1e4";c.fillRect(W*.3,H*.06,W*.4,H*.2);c.fillStyle="#2f2a23";c.textAlign="center";c.textBaseline="middle";c.font="700 "+Math.round(H*.12)+"px Arial, sans-serif";c.fillText("CONSIGNES",W/2,H*.165);
+  [[.06,.34,.26,.55,-.04],[.37,.33,.26,.58,.02],[.69,.36,.25,.5,.05]].forEach(([x,y,w,h,a])=>{
+    c.save();c.translate(W*(x+w/2),H*(y+h/2));c.rotate(a);c.fillStyle="#fbf8f0";c.fillRect(-W*w/2,-H*h/2,W*w,H*h);
+    c.fillStyle="#8d8678";for(let k=0;k<6;k++)c.fillRect(-W*w*.4,-H*h*.32+k*H*h*.12,W*w*(k%3===2?.55:.8),H*.02);
+    c.fillStyle="#b32a22";c.beginPath();c.arc(0,-H*h*.44,W*.012,0,Math.PI*2);c.fill();c.restore();
+  });
+}
+
+/** Écran de surveillance découpé en quatre vues grises de couloir et de cour. */
+function worldCctvPaint(c,W,H) {
+  c.fillStyle="#111312";c.fillRect(0,0,W,H);
+  for(let i=0;i<4;i++){const x=W*(.03+(i%2)*.485),y=H*(.05+Math.floor(i/2)*.46),w=W*.455,h=H*.42,g=c.createLinearGradient(0,y,0,y+h);
+    g.addColorStop(0,"#5d615d");g.addColorStop(1,"#2d302d");c.fillStyle=g;c.fillRect(x,y,w,h);
+    c.fillStyle="#7c807b";c.fillRect(x+w*.1,y+h*.55,w*.8,h*.06);c.fillRect(x+w*(.15+i*.15),y+h*.2,w*.08,h*.35);
+    c.fillStyle="#e8e8e0";c.font="700 "+Math.round(H*.055)+"px Arial, sans-serif";c.textAlign="left";c.textBaseline="top";c.fillText("CAM "+(i+1)+"  08:5"+(6+i%3),x+w*.04,y+h*.05);}
+}
+
+/** Triangle jaune « danger électrique » sur fond blanc, comme sur un vrai poste. */
+function worldDangerPaint(c,W,H) {
+  c.fillStyle="#f7f5ef";c.fillRect(0,0,W,H);
+  c.fillStyle="#f3c514";c.strokeStyle="#161616";c.lineWidth=W*.05;c.lineJoin="round";
+  c.beginPath();c.moveTo(W*.5,H*.07);c.lineTo(W*.93,H*.68);c.lineTo(W*.07,H*.68);c.closePath();c.fill();c.stroke();
+  c.fillStyle="#161616";c.beginPath();c.moveTo(W*.55,H*.2);c.lineTo(W*.38,H*.46);c.lineTo(W*.5,H*.46);c.lineTo(W*.43,H*.62);c.lineTo(W*.63,H*.38);c.lineTo(W*.51,H*.38);c.closePath();c.fill();
+  c.textAlign="center";c.textBaseline="middle";c.font="700 "+Math.round(H*.12)+"px Arial, sans-serif";c.fillText("DANGER",W/2,H*.85);
+}
+
+/** Lisse de chantier à bandes rouges et blanches. */
+function worldBarrierPaint(c,W,H) {
+  c.fillStyle="#f4f2ec";c.fillRect(0,0,W,H);c.fillStyle="#c62a24";
+  for(let x=-H;x<W+H;x+=H*1.6){c.beginPath();c.moveTo(x,H);c.lineTo(x+H*.8,0);c.lineTo(x+H*1.6,0);c.lineTo(x+H*.8,H);c.closePath();c.fill();}
+}
+
+/** Croix verte lumineuse de pharmacie. */
+function worldCrossPaint(c,W,H) {
+  c.fillStyle="#2a2c2c";c.fillRect(0,0,W,H);c.fillStyle="#2f9a4a";
+  c.fillRect(W*.36,H*.1,W*.28,H*.8);c.fillRect(W*.1,H*.36,W*.8,H*.28);
+}
+
+/** Porte avec huisserie et plaque murale ; le centre visé reste toujours dégagé. */
+function worldDoor(name,x,z,axis,color,fn,o={}) {
+  const m=it(cbx(axis==="x"?.16:1.65,2.3,axis==="x"?1.65:.16,x,0,z,color,{b:.025}),name,fn);
+  m.userData.world=1;
+  const f=o.face||(axis==="x"?(x>0?-1:1):(z>0?-1:1)),c=axis==="x"?x:z,wall=o.wall!=null?o.wall:c-f*.08;
+  if(o.frame!==null) {
+    const fc=o.frame||0xdcd7cc,front=c+f*.11,mid=(front+wall)/2,depth=Math.max(.08,Math.abs(front-wall));
+    for(const k of [-1,1]) axis==="z"?bx(.1,2.42,depth,x+k*.875,0,mid,fc):bx(depth,2.42,.1,mid,0,z+k*.875,fc);
+    if(o.lintel!==false) axis==="z"?bx(1.85,.12,depth,x,2.3,mid,fc):bx(depth,.12,1.85,mid,2.3,z,fc);
+  }
+  if(o.title) {
+    const p=wall+f*.012;
+    worldPlate(o.title,axis==="x"?p:x,o.titleY||2.66,axis==="z"?p:z,axis==="x"?(f>0?Math.PI/2:-Math.PI/2):(f>0?0:Math.PI),o.style||"plate");
+  }
+  if(o.handle) {
+    const hp=c+f*.12,hm=axis==="z"?bx(.2,.045,.05,x+.6,1.02,hp,o.handle):bx(.05,.045,.2,hp,1.02,z+.6,o.handle);
+    worldOwned(hm,m);
+  }
+  return m;
+}
+
+/** Décor attaché à un objet interactif : il ne masque pas la cible lors de la visée. */
+function worldOwned(m,owner) { m.userData.keep=1; m.userData.worldOwner=owner; return m; }
+
+/** Luminaire fluorescent de plafond ; il s'éteint avec les autres ampoules pendant la panne. */
+function worldTube(x,y,z,len=1.25) {
+  bx(len+.14,.07,.36,x,y-.07,z,0xdedbd3);
+  const p=bx(len,.02,.24,x,y-.09,z,0,{m:WORLD_TUBE});p.userData.keep=1;(cur.bb||(cur.bb=[])).push(p);
+}
+/** Lumière ponctuelle enregistrée dans la salle pour suivre l’éclairage normal et les pannes. */
+function worldLight(x,y,z,i=.65,d=7,c=0xfff0d8) {
+  const l=new THREE.PointLight(c,i*.7,d*1.8);l.position.set(x,y,z);cur.g.add(l);(cur.ls||(cur.ls=[])).push({l,i:l.intensity});
+}
+
+/** Fenêtre de façade : cadre clair, vitre sombre, meneau, appui et volets éventuels. */
+function worldPane(face,u,y,ww,wh,o={}) {
+  const P=(du,dy,dw,dh,depth,off,c)=>face.ax==="x"
+    ?bx(depth,dh,dw,face.at+face.n*off,y+dy,u+du,c):bx(dw,dh,depth,u+du,y+dy,face.at+face.n*off,c);
+  if(o.mini){P(0,0,ww,wh,.05,.03,o.glass||0x3a4245);return;}
+  const frame=o.frame||0xebe6da;
+  P(0,-.07,ww+.18,wh+.15,.05,.02,frame);
+  P(0,0,ww,wh,.05,.035,o.glass||0x3a4245);
+  if(ww>.8&&!o.single)P(0,0,.06,wh,.04,.06,frame);
+  if(o.bars)for(const k of [-.3,0,.3])P(k*ww,0,.03,wh,.03,.075,0x3b3d3f);
+  P(0,-.15,ww+.3,.08,.16,.07,o.sill||0xd8d2c4);
+  if(o.shutter)for(const k of [-1,1])P(k*(ww/2+.36),-.02,.58,wh+.06,.05,.035,o.shutter);
+}
+/** Répartit régulièrement des fenêtres sur une façade, étage par étage, entre deux bornes. */
+function worldWindows(face,u0,u1,levels,o={}) {
+  const step=o.step||2.7,margin=o.margin||(o.shutter?1.35:.8),span=u1-u0;
+  const n=Math.max(1,Math.floor((span-2*margin)/step)+1),first=u0+(span-(n-1)*step)/2;
+  for(const y of levels)for(let i=0;i<n;i++){const u=first+i*step;if(o.skip&&o.skip(u,y))continue;worldPane(face,u,y,o.w||1.1,o.h||1.45,o);}
+}
+/** Décrit les quatre façades d’un volume (axe, position, orientation, étendue). */
+function worldFaces(x,z,w,d) {
+  return {e:{ax:"x",at:x+w/2,n:1,u0:z-d/2,u1:z+d/2},w:{ax:"x",at:x-w/2,n:-1,u0:z-d/2,u1:z+d/2},
+    s:{ax:"z",at:z+d/2,n:1,u0:x-w/2,u1:x+w/2},n:{ax:"z",at:z-d/2,n:-1,u0:x-w/2,u1:x+w/2}};
+}
+/** Volume plaqué contre une façade ; u suit la façade, off l'éloigne du mur. */
+function worldFaceBox(f,u,y,w,h,depth,off,c) {
+  return f.ax==="x"?bx(depth,h,w,f.at+f.n*off,y,u,c):bx(w,h,depth,u,y,f.at+f.n*off,c);
+}
+/** Angle à donner à un objet plaqué sur une façade pour qu’il regarde la rue. */
+function worldFaceAngle(f) { return f.ax==="z"?(f.n>0?0:Math.PI):(f.n>0?Math.PI/2:-Math.PI/2); }
+/** Pose une enseigne sur une façade, légèrement décollée du mur. */
+function worldFaceSign(f,lines,u,y,off,w,h,style,paint,tag) {
+  return worldSign(lines,f.ax==="x"?f.at+f.n*off:u,y,f.ax==="x"?u:f.at+f.n*off,w,h,worldFaceAngle(f),style,paint,tag);
+}
+/** Bandeau, corniche et soubassement : les lignes horizontales d'un vrai immeuble. */
+function worldMouldings(x,z,w,d,h,levels,c=0xe6e0d2) {
+  bx(w+.08,.5,d+.08,x,0,z,0x9a948a);
+  for(const y of levels)bx(w+.1,.12,d+.1,x,y,z,c);
+  bx(w+.3,.22,d+.3,x,h-.22,z,c);
+}
+
+/** Toit-terrasse : étanchéité grise et acrotère sur le pourtour. */
+function worldRoofFlat(x,z,w,d,h,c=0xc9c1b1) {
+  bx(w-.3,.06,d-.3,x,h,z,0x6e6d69);
+  for(const k of [-1,1]){bx(w+.1,.5,.25,x,h,z+k*(d/2-.075),c);bx(.25,.5,d+.1,x+k*(w/2-.075),h,z,c);}
+}
+
+/** Toit à deux pans : deux versants débordants et deux pignons couleur façade. */
+function worldRoofGable(x,z,w,d,h,rise,c,wall,alongZ) {
+  const span=alongZ?w:d,length=(alongZ?d:w)+.5,half=span/2+.35,slope=Math.hypot(half,rise),a=Math.atan2(rise,half);
+  for(const k of [-1,1]) {
+    const m=new THREE.Mesh(new THREE.BoxGeometry(alongZ?slope:length,.14,alongZ?length:slope),fm(c));
+    if(alongZ){m.position.set(x+k*half/2,h+rise/2,z);m.rotation.z=-k*a;}else{m.position.set(x,h+rise/2,z+k*half/2);m.rotation.x=k*a;}
+    cur.g.add(m);
+  }
+  const s=new THREE.Shape();s.moveTo(-span/2,0);s.lineTo(span/2,0);s.lineTo(0,rise-.06);s.closePath();
+  const depth=(alongZ?d:w)-.02,g=new THREE.ExtrudeGeometry(s,{depth,bevelEnabled:false});g.translate(0,0,-depth/2);
+  const p=new THREE.Mesh(g,fm(wall));p.position.set(x,h,z);if(!alongZ)p.rotation.y=Math.PI/2;cur.g.add(p);
+}
+
+/** Toit à quatre pans sur plan rectangulaire, avec faîtage et sous-face des débords. */
+function worldRoofHip(x,z,w,d,h,rise,c,over=.3) {
+  const a=w/2+over,b=d/2+over,r=Math.abs(a-b),P=[],add=(...v)=>v.forEach(q=>P.push(...q));
+  const A=[-a,0,-b],B=[a,0,-b],C=[a,0,b],D=[-a,0,b];
+  const R1=a>=b?[-r,rise,0]:[0,rise,-r],R2=a>=b?[r,rise,0]:[0,rise,r];
+  const tri=(p,q,s)=>{const cx=(p[0]+q[0]+s[0])/3,cz=(p[2]+q[2]+s[2])/3,cy=(p[1]+q[1]+s[1])/3;
+    const ux=q[0]-p[0],uy=q[1]-p[1],uz=q[2]-p[2],vx=s[0]-p[0],vy=s[1]-p[1],vz=s[2]-p[2];
+    const nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;
+    (nx*cx+ny*(cy-rise*.3)+nz*cz>=0)?add(p,q,s):add(p,s,q);};
+  if(a>=b){tri(A,B,R2);tri(A,R2,R1);tri(C,D,R1);tri(C,R1,R2);tri(A,R1,D);tri(B,C,R2);}
+  else{tri(B,C,R2);tri(B,R2,R1);tri(D,A,R1);tri(D,R1,R2);tri(A,B,R1);tri(C,D,R2);}
+  add(A,C,B);add(A,D,C);
+  const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.Float32BufferAttribute(P,3));
+  g.setAttribute("uv",new THREE.Float32BufferAttribute(new Array(P.length/3*2).fill(0),2));g.computeVertexNormals();
+  const m=new THREE.Mesh(g,fm(c));m.position.set(x,h,z);cur.g.add(m);return m;
+}
+
+/** Banc bas, avec une emprise solide sans petits obstacles invisibles. */
+function worldBench(x,z,angle=0) {
+  const g=new THREE.Group(),old=cur.g;cur.g=g;
+  cbx(1.9,.08,.48,0,.44,0,0x9c7955,{b:.02});
+  cbx(1.9,.32,.07,0,.62,.24,0x8b6a4b,{b:.02});
+  for(const k of [-.8,.8]){bx(.07,.44,.44,k,0,0,0x3b3d3f);bx(.07,.5,.06,k,.44,.24,0x3b3d3f);}
+  cur.g=old;g.position.set(x,0,z);g.rotation.y=angle;old.add(g);
+  cur.sol.push(Math.abs(Math.sin(angle))<.5?[x-1,x+1,z-.3,z+.32]:[x-.3,x+.32,z-1,z+1]);
+}
+
+/** Arbre d’alignement : tronc (avec collision au besoin) et houppier facetté. */
+function worldTree(x,z,scale=1,solid=true) {
+  bx(.24*scale,1.9*scale,.24*scale,x,0,z,0x6f5c49,{s:solid});
+  const m=new THREE.Mesh(new THREE.IcosahedronGeometry(1.15,1),fm(0x6d8f63));
+  m.position.set(x,2.3*scale,z);m.scale.set(scale,scale*1.15,scale);cur.g.add(m);
+  ball(.72*scale,x+.44*scale,2.45*scale,z+.13*scale,0x819d6f);
+}
+
+/** Lampadaire de rue à crosse avec sa vasque éclairante. */
+function worldLamp(x,z,dir) {
+  cyl(.07,4.2,x,0,z,0x3b3d3f,1);
+  bx(.95,.07,.07,x+dir*.45,4.1,z,0x3b3d3f);
+  bx(.46,.13,.24,x+dir*.9,3.98,z,0x3b3d3f);
+  bx(.38,.03,.18,x+dir*.9,3.96,z,0xf3e7c4);
+}
+
+/** Conteneur à déchets sur roulettes, avec collision. */
+function worldBin(x,z,body,lid) {
+  bx(.68,.92,.74,x,0,z,body,{s:1});bx(.72,.06,.8,x,.92,z,lid);
+  for(const k of [-1,1])cyl(.09,.04,x+k*.3,0,z+.38,0x232425);
+}
+
+/** Pile de palettes en bois, avec collision. */
+function worldPallets(x,z,n=4) {
+  for(let i=0;i<n;i++){bx(1.2,.03,1,x,i*.15+.12,z,0xb6946a);for(const k of [-1,0,1])bx(1.2,.1,.12,x,i*.15+.02,z+k*.42,0xa4825a);}
+  cur.sol.push([x-.62,x+.62,z-.52,z+.52]);
+}
+
+/** Voiture garée : caisse, habitacle vitré, roues, phares et feux. */
+function worldCar(x,z,color,k=1) {
+  cbx(1.76,.55,4.1,x,.3,z,color,{s:1,b:.12});
+  cbx(1.56,.56,2.05,x,.85,z-k*.2,0x2e3437,{b:.12});
+  cbx(1.48,.06,1.9,x,1.41,z-k*.2,color,{b:.03});
+  for(const side of [-1,1]) for(const zz of [-1.3,1.3]) {
+    const m=new THREE.Mesh(new THREE.CylinderGeometry(.32,.32,.2,10),fm(0x2a2c2e));m.rotation.z=Math.PI/2;m.position.set(x+side*.85,.32,z+zz);cur.g.add(m);
+  }
+  for(const xx of [-.6,.6]){bx(.34,.12,.04,x+xx,.6,z+k*2.06,0xf1ead2);bx(.3,.1,.04,x+xx,.62,z-k*2.06,0x9b2a23);}
+  bx(.5,.11,.03,x,.42,z-k*2.06,0xe9e6dc);
+}
+
+/** Fourgonnette de livraison blanche : caisse, cabine, roues, phares, portes arrière et feux. */
+function worldVan(x,z,k=1) {
+  cbx(1.95,1.85,3.7,x,.32,z-k*.75,0xe9e8e3,{s:1,b:.08});
+  cbx(1.9,1.35,1.5,x,.32,z+k*1.85,0xe9e8e3,{s:1,b:.1});
+  cbx(1.7,.52,.1,x,1.05,z+k*2.6,0x2e3437,{b:.02});
+  bx(1.93,.45,.85,x,1.1,z+k*2.0,0x2e3437);
+  for(const side of [-1,1]) for(const zz of [-2.0,1.7]) {
+    const m=new THREE.Mesh(new THREE.CylinderGeometry(.34,.34,.22,10),fm(0x2a2c2e));m.rotation.z=Math.PI/2;m.position.set(x+side*.95,.34,z+k*zz);cur.g.add(m);
+  }
+  for(const xx of [-.62,.62])bx(.3,.14,.04,x+xx,.62,z+k*2.62,0xf1ead2);
+  // Arrière : deux battants, vitres, feux et pare-chocs.
+  bx(.025,1.5,.03,x,.5,z-k*2.615,0xa8a8a2);
+  for(const xx of [-.45,.45])bx(.6,.42,.03,x+xx,1.45,z-k*2.62,0x2e3437);
+  for(const xx of [-.83,.83])bx(.14,.34,.04,x+xx,.78,z-k*2.62,0xa3241c);
+  bx(1.9,.17,.12,x,.28,z-k*2.62,0x3b3d3f);
+}
+
+/** Fermeture de chantier en sortie de quartier : poteaux, lisse rayée et panneau orange. */
+function worldBarrier(x,z,along,angle) {
+  const L=6.6;
+  for(const k of [-1,1])bx(.12,1.15,.12,x+(along==="x"?k*L/2:0),0,z+(along==="z"?k*L/2:0),0xf2f0ea);
+  worldSign([""],x,.98,z,L,.3,angle,"white",worldBarrierPaint,"barriere");
+  bx(.08,1.95,.08,x,0,z,0x3b3d3f);
+  worldSign(["ROUTE BARRÉE"],x+Math.sin(angle)*.06,1.65,z+Math.cos(angle)*.06,1.5,.46,angle,"works");
+  for(const k of [-1.9,1.9]) {
+    const px=x+(along==="x"?k:0)+Math.sin(angle)*.7,pz=z+(along==="z"?k:0)+Math.cos(angle)*.7;
+    const cone=new THREE.Mesh(new THREE.ConeGeometry(.18,.55,10),fm(0xe0621d));cone.position.set(px,.275,pz);cur.g.add(cone);
+    bx(.3,.02,.3,px,0,pz,0x2a2a2a);
+  }
+}
+
+/** Voirie partagée par la ville et ses maquettes : enrobé, trottoirs, bordures et marquages. */
+function worldTownBase(mini=false) {
+  const E=mini?33:47,ZS=mini?35:47,road=0x4b4e51,paint=0xe7e4db,curb=0xd3cfc7;
+  bx(mini?66:96,.12,mini?70:96,0,-.12,0,0xb9b5ac);
+  for(const x of [-15,15]) bx(6,.016,ZS+34,x,.002,(ZS-34)/2,road);
+  for(const z of [-31,14]) bx(2*E,.02,6,0,.002,z,road);
+  const vs=[[-27.8,10.8],[17.2,ZS]],hs=[[-E,-18],[-12,12],[18,E]];
+  // Bordures interrompues aux carrefours : les trottoirs ne traversent jamais la chaussée.
+  for(const x of [-15,15]) for(const k of [-1,1]) for(const [a,b] of vs) bx(.2,.1,b-a,x+k*3.1,0,(a+b)/2,curb);
+  for(const [z,sides] of [[-31,[1]],[14,[-1,1]]]) for(const k of sides) for(const [a,b] of hs) bx(b-a,.1,.2,(a+b)/2,0,z+k*3.1,curb);
+  bx(2*E,.1,.2,0,0,-34.1,curb);
+  // Axe discontinu et passages piétons sur les branches, pas au centre des carrefours.
+  for(const x of [-15,15]) for(const [a,b] of vs) for(let u=a+3;u+1.5<=b-2.6;u+=3) bx(.12,.006,1.5,x,.018,u+.75,paint);
+  for(const z of [-31,14]) for(const [a,b] of hs) for(let u=a+3;u+1.5<=b-2.6;u+=3) bx(1.5,.006,.12,u+.75,.022,z,paint);
+  const zebra=(axis,at,c)=>{for(let i=0;i<6;i++){const u=c-2.5+i;axis==="v"?bx(.5,.006,2.4,u,.018,at,paint):bx(2.4,.006,.5,at,.022,u,paint);}};
+  for(const x of [-15,15]) for(const at of [-26.4,9.4,18.6]) zebra("v",at,x);
+  for(const z of [-31,14]) for(const at of [-19.6,-10.4,10.4,19.6]) zebra("h",at,z);
+  // Place pavée et arbres d'alignement.
+  bx(20,.03,13.5,0,0,25.25,0xcbc2b0);
+  for(const [x,z] of [[-8.6,19.6],[8.6,19.6],[-8.6,30.4],[8.6,30.4]]) { bx(1.3,.035,1.3,x,0,z,0x55554f); worldTree(x,z,.85,!mini); }
+  // Jardin des tilleuls : pelouse, haies taillées, allées gravillonnées et deux entrées.
+  bx(10.8,.05,9,-25,0,-21.75,0x7d9163);
+  bx(1.6,.058,7.35,-24,0,-22.575,0xc9bb9c); bx(5.2,.058,1.6,-22.2,0,-22,0xc9bb9c);
+  const hedge=(x0,x1,z0,z1)=>bx(x1-x0,.95,z1-z0,(x0+x1)/2,0,(z0+z1)/2,0x56704a,{s:!mini});
+  hedge(-30.4,-25.4,-26.25,-25.75); hedge(-22.6,-19.6,-26.25,-25.75); hedge(-30.4,-19.6,-17.75,-17.25);
+  hedge(-30.4,-29.9,-25.75,-17.75); hedge(-20.1,-19.6,-25.75,-23.2); hedge(-20.1,-19.6,-20.8,-17.75);
+  for(const [x,z] of [[-28.5,-24.3],[-21.4,-24.6],[-28.6,-19.4],[-21.2,-19.4]]) worldTree(x,z,1,!mini);
+  // Petits parkings des deux côtés.
+  for(const sx of [-1,1]) {
+    bx(10.4,.012,5.6,sx*26,.002,4.6,0x56595c);
+    for(let i=0;i<5;i++) bx(.1,.006,5,sx*(21+i*2.5),.014,4.6,paint);
+    bx(10.1,.006,.1,sx*26,.014,2.1,paint);
+  }
+  // Cour du magasin : béton, murs enduits avec couvertine, portail piéton et portail coulissant.
+  bx(20,.03,9,0,0,-22.5,0xa9a6a0);
+  for(const x of [-10,10]) { bx(.25,2.4,9,x,0,-22.5,0xcfc6b3); bx(.4,.1,9.1,x,2.4,-22.5,0xe2dccd); }
+  for(const [a,b] of [[-10,-1.24],[1.24,2.0],[6.8,10]]) { bx(b-a,2.4,.25,(a+b)/2,0,-27,0xcfc6b3); bx(b-a,.1,.4,(a+b)/2,2.4,-27,0xe2dccd); }
+  for(const x of [-1.03,1.03,2.1,6.7]) bx(.42,2.62,.45,x,0,-27,0xd6cdb9);
+  bx(4.4,2.15,.07,4.4,.05,-27,0x3d4042);
+  for(let y=.4;y<2.2;y+=.45) bx(4.4,.05,.1,4.4,y,-27,0x34373a);
+  for(const [x,z] of [[-7.4,-25.6],[8.6,-24.3]]) worldTree(x,z,.72,false);
+  for(const lot of CITY_SPEC.lots) worldBuilding(lot,mini?"mini":"city");
+}
+
+/** Bâtiments : volumes, toitures et détails de façade selon leur usage dans le jeu. */
+function worldBuilding(lot,mode="city") {
+  const {x,z,w,d,h,color,id}=lot,mini=mode==="mini",f=worldFaces(x,z,w,d);
+  bx(w,h,d,x,0,z,color,{s:mode==="city"});
+  if(id==="shop"||id==="colis"||id==="poste") worldRoofFlat(x,z,w,d,h,id==="colis"?0xa9aca9:0xcfc6b5);
+  else if(id==="passage") worldRoofGable(x,z,w,d,h,2.6,0xa4573d,color,true);
+  else worldRoofHip(x,z,w,d,h,id==="archives"?2.4:2.2,id==="archives"?0x625f5a:0xa95c40);
+  if(mini) {
+    const g={mini:1};
+    if(id==="shop") { bx(19.4,3.8,.1,x,0,z+d/2+.05,0x3a2a1f); return; }
+    if(id==="cafe") bx(.1,3.5,d-.6,x+w/2+.05,0,z,0x5b2124);
+    if(id==="passage") { worldWindows(f.e,f.e.u0,f.e.u1,[1.0,4.0,7.0],{...g,w:1.1,h:1.6}); worldWindows(f.n,f.n.u0,f.n.u1,[4.0,7.0],{...g,w:1,h:1.5,step:3}); }
+    if(id==="archives") { worldWindows(f.w,f.w.u0,f.w.u1,[1.4,4.4],{...g,w:1.15,h:2.1,step:2.3}); worldWindows(f.n,f.n.u0,f.n.u1,[1.4,4.4],{...g,w:1.15,h:2.1,step:2.3}); }
+    if(id==="cafe") { worldWindows(f.e,f.e.u0,f.e.u1,[4.2],{...g,w:1.05,h:1.5,step:2.6}); worldWindows(f.n,f.n.u0,f.n.u1,[1.1,4.2],{...g,w:1.05,h:1.5,step:2.6}); }
+    if(id==="colis") for(const zz of [-11.1,-2.9]) bx(.1,3.2,3,x-w/2-.05,0,zz,0x9a9e9f);
+    return;
+  }
+  if(id==="shop") {
+    worldMouldings(x,z,w,d,h,[],0xe6e0d2);
+    const zf=z+d/2;
+    bx(19.4,3.8,.1,x,0,zf+.05,0x3a2a1f);
+    for(const xx of [-6.25,6.25]) {
+      worldSign([""],xx,1.8,zf+.105,5.6,2.3,0,"plate",worldVitrinePaint("books"),"vitrine-livres");
+      bx(5.8,.08,.08,xx,2.95,zf+.13,0x2b2016); bx(5.9,.1,.26,xx,.55,zf+.17,0x2b2016);
+      for(const k of [-1.87,1.87]) bx(.07,2.3,.07,xx+k,.65,zf+.135,0x2b2016);
+    }
+    bx(10.9,.66,.05,x,3.05,zf+.125,0x2b2016);
+    worldSign(["LIBRAIRIE · CADEAUX"],x,3.38,zf+.153,10.6,.56,0,"shop");
+    worldPlate(["LIBRAIRIE","Lun.–sam. · 9 h – 19 h"],1.75,1.55,zf+.106,0,"white",.11);
+    worldDoor("Façade du magasin",0,zf+.15,"z",0x3b2b1f,()=>{
+      const rest=TK.filter(k=>!T.tasks[k[0]]).map(k=>k[1]);
+      panel("<h1>Le magasin</h1><p>"+(rest.length?"Avant d’accueillir les clients : "+rest.join(" · "):"Tout est prêt. Retourne à l’intérieur et ouvre la porte d’entrée.")+"</p><p>Pour rentrer, passe par le portail de la cour, derrière le bâtiment.</p><button data-a='close'>Continuer</button>");
+    },{face:1,wall:zf+.1,frame:0x2b2016,handle:0xb39a62});
+    worldSign([""],0,1.32,zf+.236,1.15,1.75,0,"plate",worldClosedDoorPaint,"porte-fermee");
+    for(const xx of [-2.3,2.3]) { cbx(.7,.55,.7,xx,0,zf+.62,0x77736d,{s:1,b:.03}); ball(.4,xx,.88,zf+.62,0x5f7f4f,.85); }
+    for(const side of [f.w,f.e]) {
+      worldWindows(side,side.u0+2,side.u1-2,[2.4],{w:1.4,h:.6,glass:0xc9cdc6,single:1,step:4.4});
+      for(const zz of [z-d/2+.3,zf-.3]) worldFaceBox(side,zz,0,.12,h,.12,.06,0x7b7f80);
+    }
+    worldFaceBox(f.n,0,0,1.1,2.2,.06,.03,0x8c908d);
+    worldWindows(f.n,f.n.u0+2,f.n.u1-2,[1.5],{w:1.3,h:1,bars:1,glass:0xc9cdc6,single:1,step:5,skip:u=>Math.abs(u)<1.5});
+    bx(1.8,.9,1.2,x-4,h,z-10,0xa3a7a7); bx(1.4,.6,1.4,x+5,h,z-2,0x9da1a1); cyl(.45,.06,x+5,h+.6,z-2,0x3b3d3f);
+    bx(.3,.3,5,x-4,h+.2,z-6.9,0x9da1a1);
+  } else if(id==="passage") {
+    worldMouldings(x,z,w,d,h,[3.45,6.45]);
+    const fx=x+w/2;
+    bx(.06,3.3,2.9,fx+.03,0,z,0x4a3626);
+    for(const k of [-1.62,1.62]) bx(.16,3.45,.35,fx+.08,0,z+k,0xcfc3a8);
+    bx(.16,.42,3.6,fx+.08,3.3,z,0xcfc3a8);
+    worldSign(["PASSAGE DE L’OUEST"],fx+.165,3.51,z,3.1,.3,Math.PI/2,"stone");
+    worldWindows(f.e,f.e.u0,f.e.u1,[1.0],{w:1.1,h:1.6,bars:1,skip:u=>Math.abs(u-z)<2.6});
+    worldWindows(f.e,f.e.u0,f.e.u1,[4.0,7.0],{shutter:0x77856c,w:1.1,h:1.6});
+    for(const side of [f.n,f.s]) worldWindows(side,side.u0,side.u1,[1.0,4.0,7.0],{w:1,h:1.5,step:3,shutter:0x77856c});
+    worldWindows(f.w,f.w.u0,f.w.u1,[4.0,7.0],{w:1,h:1.5,step:3.2});
+    for(const [cx,cz] of [[x-2.4,z-5],[x+2.4,z+4.5]]) { bx(.8,2.4,.55,cx,h+.6,cz,0x9b8f80); bx(.9,.12,.65,cx,h+3.0,cz,0x7f7466); }
+  } else if(id==="colis") {
+    const fx=x-w/2;
+    bx(w+.06,.45,d+.06,x,0,z,0x8a8c88);
+    for(let u=z-d/2+.5;u<z+d/2;u+=1) bx(.06,h-.5,.08,fx-.03,.45,u,0xa5a8a5);
+    for(const side of [f.n,f.s]) for(let u=side.u0+.5;u<side.u1;u+=1) worldFaceBox(side,u,.45,.08,h-.5,.06,.03,0xa5a8a5);
+    for(const zz of [-11.1,-2.9]) {
+      bx(.1,3.2,3,fx-.07,0,zz,0x9a9e9f);
+      for(let k=0;k<8;k++) bx(.02,.03,3,fx-.125,.3+k*.4,zz,0x7d8182);
+      bx(.4,.42,3.3,fx-.2,3.2,zz,0x8a8e8f);
+      for(const s of [-1.55,1.55]) bx(.08,3.2,.1,fx-.1,0,zz+s,0x6f7374);
+      for(const s of [-1.75,1.75]) cyl(.09,.85,fx-.65,0,zz+s,0xd8a31d,1);
+    }
+    bx(1.4,.12,3.4,fx-.7,3.0,z,0x5d6163);
+    for(const s of [-1.6,1.6]) bx(1.4,.08,.08,fx-.7,2.94,z+s,0x4d5153);
+    bx(.05,.82,5.4,fx-.045,4.34,z,0x2f3132);
+    worldSign(["QUAI DES COLIS"],fx-.075,4.75,z,5.2,.72,-Math.PI/2,"white");
+    for(const [cx,cz] of [[x+1,z-3],[x+1,z+3]]) bx(1.3,.3,2.4,cx,h,cz,0xd6dcdc);
+  } else if(id==="archives") {
+    const fx=x-w/2;
+    worldMouldings(x,z,w,d,h,[3.8,7.0],0xe9e3d6);
+    bx(w+.14,.9,d+.14,x,0,z,0xbfb4a0);
+    for(let i=0;i<3;i++) { const sw=1.2-.35*i; bx(sw,.15,3.4,fx-sw/2+.07,.15*i,z,0xcfc6b4); }
+    bx(.06,2.75,1.9,fx-.1,.45,z,0x4a3626);
+    for(const k of [-1.15,1.15]) bx(.2,2.85,.3,fx-.12,.45,z+k,0xe9e3d6);
+    bx(.24,.36,2.8,fx-.13,3.3,z,0xe9e3d6);
+    for(const k of [-d/2+.28,d/2-.28]) bx(.18,h-1.2,.55,fx-.07,.9,z+k,0xe9e3d6);
+    worldSign(["ARCHIVES MUNICIPALES"],fx-.075,8.25,z,6.6,.55,-Math.PI/2,"stone");
+    for(const side of [f.w,f.n,f.s]) worldWindows(side,side.u0,side.u1,[1.4,4.4],{w:1.15,h:2.1,step:2.3,skip:(u,y)=>side===f.w&&y<2&&Math.abs(u-z)<1.6});
+    worldWindows(f.n,f.n.u0,f.n.u1,[7.6],{w:1.0,h:.9,step:2.3,single:1});
+  } else if(id==="cafe") {
+    const fx=x+w/2;
+    worldMouldings(x,z,w,d,h,[3.6]);
+    bx(.1,3.5,d-.6,fx+.05,0,z,0x5b2124);
+    for(const zz of [21.4,24.9]) {
+      worldSign([""],fx+.106,1.75,zz,2.6,2.1,Math.PI/2,"plate",worldVitrinePaint("cafe"),"vitrine-cafe");
+      bx(.26,.1,2.8,fx+.15,.6,zz,0x3a1416); bx(.07,.08,2.7,fx+.135,2.8,zz,0x3a1416);
+    }
+    worldSign(["CAFÉ DU COIN"],fx+.106,3.2,z,6.2,.56,Math.PI/2,"cafe");
+    bx(.06,2.3,1.05,fx+.13,0,27,0x3a1416); bx(.02,1.5,.72,fx+.165,.62,27,0x2e2a26);
+    cbx(1.465,.05,7,fx+.7,2.64,23.1,0x5b2124,{rz:-.298,b:.01});
+    bx(.03,.24,7,fx+1.4,2.21,23.1,0x5b2124);
+    worldSign(["CAFÉ · BRASSERIE"],fx+1.418,2.33,23.1,3.2,.2,Math.PI/2,"cafe");
+    worldWindows(f.e,f.e.u0,f.e.u1,[4.2],{shutter:0x8b4a3c,w:1.05,h:1.5,step:2.6});
+    worldWindows(f.n,f.n.u0,f.n.u1,[1.1,4.2],{shutter:0x8b4a3c,w:1.05,h:1.5,step:2.6});
+    worldWindows(f.s,f.s.u0,f.s.u1,[4.2],{w:1.05,h:1.5,step:2.6});
+    cyl(.035,.72,-18.55,0,25.4,0x2c2c2c); cyl(.25,.03,-18.55,0,25.4,0x2c2c2c); cyl(.36,.04,-18.55,.72,25.4,0xd8d2c4);
+    cur.sol.push([-18.92,-18.18,25.03,25.77]);
+    for(const [zz,k] of [[24.65,-1],[26.15,1]]) {
+      cyl(.2,.04,-18.55,.45,zz,0x6b3b2a);
+      for(const [a,b] of [[-.13,-.13],[-.13,.13],[.13,-.13],[.13,.13]]) bx(.03,.45,.03,-18.55+a,0,zz+b,0x2c2c2c);
+      bx(.36,.32,.03,-18.55,.5,zz+k*.19,0x6b3b2a);
+      cur.sol.push([-18.75,-18.35,zz-.2,zz+.2]);
+    }
+    cyl(.1,.012,-18.55,.76,25.4,0xf1e0bf);
+    it(cyl(.06,.09,-18.55,.772,25.4,0xf1e0bf),"Café du coin — prendre une tasse",()=>say("Une tasse avant l’ouverture. Le serveur a laissé le thermos ; au moins, celui-ci ne commente pas tes choix."));
+  } else if(id==="poste") {
+    const fx=x-w/2;
+    bx(w+.06,.35,d+.06,x,0,z,0x8f8b84);
+    for(const zz of [20.2,25.8]) {
+      bx(.08,2.5,1.7,fx-.03,0,zz,0x8e9191);
+      for(let k=0;k<9;k++) bx(.03,.05,1.5,fx-.085,.35+k*.24,zz,0x6c7070);
+      worldSign([""],fx-.105,1.7,zz,.42,.42,-Math.PI/2,"white",worldDangerPaint,"danger");
+    }
+    worldPlate("POSTE ÉLECTRIQUE",fx-.012,3.1,z,-Math.PI/2,"white",.22);
+    for(const side of [f.n,f.s]) worldFaceBox(side,x,2.6,1.4,.6,.05,.025,0x7d8181);
+  }
+}
+
+/** Fronts bâtis en limite de quartier : rues fermées par des façades, jamais par le vide. */
+function worldOutskirts(northOnly=false) {
+  const R=lpRng(4207),walls=[0xd9cfbd,0xcdbfa6,0xe3d9c6,0xc8b59b,0xd4c7b2,0xbdb6a9,0xd8c4a6,0xcbc4b6,0xe0cfb5];
+  const roofs=[0xa4573d,0x9a5a43,0x625f5a,0x6e6b66,0xae6a4c],shutters=[0x77856c,0x8b4a3c,0x6b6e6a,0xd8d2c4,0x7a5c45],doors=[0x4a3626,0x5b2124,0x3d4042,0x6b5a45];
+  const shopFront=(face,u,ww,label)=>{
+    const [text,style]=label,front={TABAC:0x8c2a27,BOULANGERIE:0x35271c,PHARMACIE:0x2e6a3b}[text.split(" ")[0]]||0x35271c;
+    worldFaceBox(face,u,0,ww-1,3.1,.1,.05,front);
+    worldFaceSign(face,[""],u-ww*.18,1.55,.106,ww*.42,1.8,"plate",worldVitrinePaint(text==="BOULANGERIE"?"cafe":"books"),"vitrine-"+text);
+    worldFaceBox(face,u+ww*.22,0,1.05,2.3,.06,.13,0x2e2a26);
+    worldFaceSign(face,[text],u,2.75,.106,ww-1.4,.5,style);
+    if(text==="PHARMACIE") { worldFaceBox(face,u+ww/2-.9,3.0,.08,.08,.6,.35,0x3b3d3f); worldFaceSign(face,[""],u+ww/2-.9,3.4,.68,.62,.62,"plate",worldCrossPaint,"croix"); }
+  };
+  const house=(axis,front,n,u,ww,label)=>{
+    const d=9,floors=2+Math.floor(R()*3),h=floors*3+.7+R()*.5,c=walls[Math.floor(R()*walls.length)];
+    const cx=axis==="z"?u:front-n*d/2,cz=axis==="z"?front-n*d/2:u,w=axis==="z"?ww:d,dd=axis==="z"?d:ww;
+    bx(w,h,dd,cx,0,cz,c); bx(w+.06,.45,dd+.06,cx,0,cz,0x9a948a); bx(w+.24,.2,dd+.24,cx,h-.2,cz,0xe6e0d2);
+    const F=worldFaces(cx,cz,w,dd),face=axis==="z"?(n>0?F.s:F.n):(n>0?F.e:F.w),sh=R()<.55?shutters[Math.floor(R()*shutters.length)]:0;
+    const levels=[];for(let i=1;i<floors;i++)levels.push(i*3+.9);
+    worldWindows(face,u-ww/2,u+ww/2,levels,{w:1.05,h:1.5,step:2.5,shutter:sh||undefined,margin:sh?1.4:.9});
+    if(label) shopFront(face,u,ww,label);
+    else {
+      const du=u-ww/2+1.3+R()*(ww-2.6);
+      worldFaceBox(face,du,0,1.1,2.25,.08,.04,doors[Math.floor(R()*doors.length)]);
+      worldFaceBox(face,du,2.25,1.35,.14,.1,.05,0xe6e0d2);
+      worldWindows(face,u-ww/2,u+ww/2,[1.0],{w:1.05,h:1.4,step:2.5,bars:R()<.4,skip:q=>Math.abs(q-du)<1.45});
+    }
+    worldRoofGable(cx,cz,w,dd,h,1.7+R()*.8,roofs[Math.floor(R()*roofs.length)],c,axis==="x");
+  };
+  const row=(axis,front,n,u0,u1,labels=[])=>{
+    let u=u0;
+    while(u1-u>.5) {
+      let ww=6+Math.floor(R()*4)*1.2; if(u1-u-ww<5) ww=u1-u;
+      const label=labels.find(q=>q[0]>=u&&q[0]<u+ww);
+      house(axis,front,n,u+ww/2,ww,label&&label[1]); u+=ww;
+    }
+  };
+  row("z",-35.6,1,-47,47,[[0,["TABAC · PRESSE","red"]]]);
+  if(northOnly) return;
+  row("z",35.6,-1,-47,-19.5); row("z",35.6,-1,-10.5,10.5,[[-5,["BOULANGERIE","shop"]],[5,["PHARMACIE","green"]]]); row("z",35.6,-1,19.5,47);
+  for(const s of [-1,1]) {
+    row("x",s*35.6,-s,-26.5,9.5); row("x",s*35.6,-s,18.5,35.6);
+    row("x",s*47,-s,-35.6,-26.5); row("x",s*47,-s,9.5,18.5);
+  }
+  row("z",47,-1,-19.5,-10.5); row("z",47,-1,10.5,19.5);
+  for(const [bx_,bz,along,angle] of [[-32.9,-31,"z",Math.PI/2],[32.9,-31,"z",-Math.PI/2],[-32.9,14,"z",Math.PI/2],[32.9,14,"z",-Math.PI/2],[-15,34.8,"x",Math.PI],[15,34.8,"x",Math.PI]]) worldBarrier(bx_,bz,along,angle);
+}
+
+/** La maquette emploie le même plan de bâtiments et les mêmes rues que la ville. */
+function worldMiniature(x,z,scale,stand=true) {
+  const main=cur.g,previousSol=cur.sol,group=new THREE.Group();cur.g=group;cur.sol=[];
+  worldTownBase(true);mergeG(group);cur.g=main;cur.sol=previousSol;
+  group.scale.setScalar(scale);group.position.set(x,stand?1.1:.055,z);
+  group.children.forEach(m=>{m.userData.keep=1;});main.add(group);
+  const leds=[],k=stand?1:3.2,y0=stand?1.1:.055;
+  for(const q of CITY_SPEC.markers) {
+    const stem=new THREE.Mesh(new THREE.CylinderGeometry(.006*k,.006*k,.16*k,6),fm(0x3b3d3f));
+    stem.position.set(x+q.x*scale,y0+.08*k,z+q.z*scale);
+    const m=new THREE.Mesh(new THREE.SphereGeometry(.024*k,10,8),new THREE.MeshBasicMaterial({color:0x5b5e60}));
+    m.position.set(x+q.x*scale,y0+.17*k,z+q.z*scale);
+    stem.userData.keep=m.userData.keep=1;main.add(stem,m);leds.push({id:q.id,m,stem});
+  }
+  return {group,leds};
+}
+
+/** Quartier extérieur : rues bordées, quatre repères, deux accès narratifs et une place. */
+function bWorldCity() {
+  const s=mkS("ville",rect(-32.3,32.3,-34.3,34.3),0xc9dbe3,[32,68]);
+  worldTownBase(); worldOutskirts();
+  worldDoor("Portail de la cour",0,-27.14,"z",0x3d4042,()=>go("cour",0,-4.1,Math.PI),{face:-1,wall:-27.125,frame:null,handle:0x2a2b2c});
+  worldPlate("ACCÈS PERSONNEL",-2.6,1.75,-27.131,Math.PI,"white",.16);
+  worldPlate(["SORTIE DE VÉHICULES","STATIONNEMENT INTERDIT"],4.4,1.45,-27.058,Math.PI,"white",.13);
+  // Les accès d'origine restent les mêmes portes, avec leurs fonctions d'origine.
+  worldDoor("Petite porte du passage ouest",-19.87,-7,"x",0x5a4030,worldBranchDoor,{face:1,wall:-19.94,frame:null});
+  worldDoor("Entrée du quai des colis",19.87,-7,"x",0x8c908d,worldColisDoor,{face:-1,wall:19.94,frame:0x5d6163,title:"LIVRAISONS",handle:0x2a2b2c});
+  // Pupitres d'information municipaux : plan du quartier et indice d'origine.
+  const hints={
+    jardin:"Le sous-sol se cache sous une dalle de la surveillance. Une première réponse n’est pas toujours la dernière.",
+    archives:"Le bureau du directeur ne cède pas au premier refus. Une fois à l’intérieur, les dossiers donnent le code : aucun raccourci ne remplace cette énigme.",
+    cafe:"Les étoiles changent le sol. Retiens sa couleur : une autre porte la demandera. Ici, le café et les promenades restent facultatifs.",
+    poste:"Si la boutique est plongée dans le noir, reprends la petite porte du passage ouest : elle mène alors vers les ruines. Le générateur conserve son parcours d’origine."
+  };
+  for(const [i,q] of CITY_SPEC.markers.entries()) {
+    const a=q.id==="jardin"?Math.PI:q.x>0?-Math.PI/2:Math.PI/2,sx=Math.round(Math.sin(a)),sz=Math.round(Math.cos(a)),along=sx===0;
+    const m=it(cbx(along?1.25:.1,1.05,along?.1:1.25,q.x,.62,q.z,0x4a3b2e,{b:.02}),"Repère "+(i+1)+" — "+q.name,()=>worldMark(q.id,hints[q.id]));
+    m.userData.world=1;
+    worldSign([""],q.x+sx*.056,1.145,q.z+sz*.056,1.15,.95,a,"paper",worldInfoPaint(q),"info-"+q.id);
+    for(const k of [-.6,.6]) bx(.07,1.72,.07,q.x+(along?k:0),0,q.z+(along?0:k),0x3d4042);
+    bx(along?1.35:.16,.06,along?.16:1.35,q.x,1.67,q.z,0x3d4042);
+    cur.sol.push(along?[q.x-.68,q.x+.68,q.z-.1,q.z+.1]:[q.x-.1,q.x+.1,q.z-.68,q.z+.68]);
+  }
+  worldBench(-24,-18.3,0); worldBench(-6,26,-Math.PI/2); worldBench(6,26,Math.PI/2);
+  for(const [x,z,dir] of [[-11.75,-27.4,-1],[11.75,-27.4,1],[-11.75,10.4,-1],[11.75,10.4,1],[-11.75,18,-1],[11.75,18,1],[-18.3,-17,1],[18.3,-17,-1],[-18.3,4,1],[18.3,4,-1],[-11.75,30,-1],[11.75,30,1]]) worldLamp(x,z,dir);
+  worldCar(-16.9,4,0xa7aaa8,1); worldCar(-16.9,31.5,0x26282a,1); worldCar(16.9,-19.5,0x6e2a26,-1); worldVan(16.9,-11.2,-1);
+  worldCar(-24.75,4.6,0x3f5546,-1); worldCar(27.25,4.6,0xc8bfa8,-1);
+  for(const [x,z] of [[-10.6,21],[10.6,29.5],[-10.6,-.5]]) { cyl(.22,.82,x,0,z,0x3f4a40,1); cyl(.24,.05,x,.82,z,0x2f3830); }
+  // Kiosque de la place : la maquette 3D est un objet du monde, sous un vrai toit.
+  bx(9,.1,7.7,0,0,25,0xbdb4a3);
+  for(const x of [-4.4,4.4]) for(const z of [21.3,28.7]) cyl(.11,3.3,x,0,z,0x3d4042,1);
+  bx(9.3,.42,8,0,3.3,25,0xe6dfcf);
+  worldRoofHip(0,25,9.3,8,3.72,1.3,0x8d9296,.25);
+  worldSign(["MAQUETTE DU QUARTIER"],0,3.51,20.994,4.4,.3,Math.PI,"plate");
+  const board=it(cbx(3.5,.18,3.75,0,.92,25,0x8a6a48,{s:1,b:.045}),"Maquette 3D de la ville",worldModelPanel);
+  for(const x of [-1.55,1.55]) for(const z of [23.4,26.6]) bx(.12,.92,.12,x,0,z,0x5a4634);
+  worldSign(["Maquette du quartier · éch. 1/22"],0,1.01,23.117,1.7,.12,Math.PI,"brass");
+  s.mini=worldMiniature(0,25,.046,true);s.mini.group.traverse(m=>{if(m.isMesh)m.userData.worldOwner=board;});
+  s.mini.leds.forEach(q=>{q.m.userData.worldOwner=board;q.stem.userData.worldOwner=board;});
+  s.g.add(new THREE.HemisphereLight(0xdde9f0,0x9b9278,.6));
+  const sun=new THREE.DirectionalLight(0xfff0dc,.3);sun.position.set(-6,12,8);s.g.add(sun);
+  fxSky(s,FXA.grass.sky);return s;
+}
+
+/** Cour de service : béton, murs enduits, portail sur la rue et bâtiments voisins au-dessus. */
+function bWorldCour() {
+  const s=mkS("cour",rect(-9.55,9.55,-5.3,5.3),0xc9dbe3,[18,48]);
+  worldMoved(0,21.7,()=>{
+    for(const id of ["archives","colis","passage"]) worldBuilding(CITY_SPEC.lots.find(l=>l.id===id),"decor");
+    for(const [x,z] of [[-28.5,-24.3],[-21.4,-24.6],[-28.6,-19.4],[-21.2,-19.4]]) worldTree(x,z,1,false);
+    worldOutskirts(true);
+  });
+  bx(20,.14,11.2,0,-.14,0,0xa9a6a0);
+  for(const z of [-2.8,0,2.8]) bx(20,.004,.04,0,0,z,0x8f8c86);
+  for(const x of [-5,5]) bx(.04,.004,11.2,x,0,0,0x8f8c86);
+  bx(.5,.012,.5,0,0,0,0x3b3d3f);
+  // Arrière du magasin : porte du personnel, applique, fenêtres dépolies et descentes d'eau.
+  bx(20.4,4.6,.3,0,0,5.75,0xd9d0bf); bx(20.4,.5,.06,0,0,5.58,0x9a948a); bx(20.7,.22,.55,0,4.6,5.75,0xe6e0d2);
+  worldDoor("Retour à l’arrière-boutique",0,5.43,"z",0x8c908d,()=>go("back",0,-7.6,Math.PI),{face:-1,wall:5.6,frame:0x6f7374,title:"ENTRÉE DU PERSONNEL"});
+  bx(.3,.16,.22,0,2.95,5.49,0x3b3d3f); bx(.24,.03,.16,0,2.93,5.49,0xfff3d6);
+  const rear={ax:"z",at:5.6,n:-1};
+  for(const x of [-5,5]) worldPane(rear,x,1.5,1.3,1.0,{bars:1,glass:0xc9cdc6,single:1});
+  for(const x of [-9.5,9.5]) bx(.12,4.6,.12,x,0,5.53,0x7b7f80);
+  cbx(.9,.65,.35,7.2,2.6,5.42,0xd8d8d2,{b:.03}); bx(.5,.5,.02,7.05,2.67,5.235,0x5f6365);
+  // Murs mitoyens et mur sur rue, avec portail piéton et portail coulissant.
+  for(const x of [-9.95,9.95]) { bx(.25,2.5,11.2,x,0,0,0xcfc6b3,{s:1}); bx(.4,.12,11.3,x,2.5,0,0xe2dccd); }
+  for(const [a,b] of [[-10,-1.24],[1.24,2.0],[6.8,10]]) { bx(b-a,2.5,.25,(a+b)/2,0,-5.62,0xcfc6b3,{s:1}); bx(b-a,.12,.4,(a+b)/2,2.5,-5.62,0xe2dccd); }
+  for(const x of [-1.03,1.03,2.1,6.7]) bx(.42,2.7,.45,x,0,-5.62,0xd6cdb9,{s:1});
+  bx(4.4,2.2,.07,4.4,.05,-5.62,0x3d4042,{s:1});
+  for(let y=.4;y<2.2;y+=.45) bx(4.4,.05,.1,4.4,y,-5.62,0x34373a);
+  bx(4.6,.05,.08,4.4,0,-5.48,0x6f7374);
+  worldDoor("Portail vers la ville",0,-5.43,"z",0x3d4042,()=>{go("ville",0,-28.6,0);},{face:1,wall:-5.495,frame:null,handle:0x2a2b2c});
+  worldPlate(["MERCI DE REFERMER","LE PORTAIL"],-2.5,1.6,-5.489,0,"white",.14);
+  // Bacs plantés, banc, cendrier, conteneurs et palettes : une cour de service ordinaire.
+  cbx(2.5,.55,1.35,-7.4,0,-3.9,0x9b9892,{s:1,b:.03}); bx(2.3,.02,1.15,-7.4,.55,-3.9,0x4b3b2c); worldTree(-7.4,-3.9,.72,false);
+  cbx(1.35,.55,2.5,8.6,0,-2.6,0x9b9892,{s:1,b:.03}); bx(1.15,.02,2.3,8.6,.55,-2.6,0x4b3b2c); worldTree(8.6,-2.6,.72,false);
+  worldBench(8.9,.9,Math.PI/2);
+  const ash=it(cyl(.16,.95,8.75,0,2.75,0x5f6365),"Cendrier de la cour",()=>say("Une vraie sortie, juste là. Le portail au fond de la cour donne sur la ville. Prends l’air ; ça ne change aucune tâche."));
+  worldOwned(cyl(.17,.03,8.75,.95,2.75,0x3b3d3f),ash); cur.sol.push([8.59,8.91,2.59,2.91]);
+  worldBin(-8.95,4.0,0x3f6b45,0x2f5236); worldBin(-8.95,2.9,0x55595b,0x404345);
+  worldPallets(-8.7,-1.4,4);
+  s.g.add(new THREE.HemisphereLight(0xdde9f0,0x928269,.6));
+  const sun=new THREE.DirectionalLight(0xfff0dc,.3);sun.position.set(-6,12,8);s.g.add(sun);
+  fxSky(s,FXA.grass.sky);return s;
+}
+
+/** Arrière-boutique traversante : couloir de service, réserve, sécurité, pause et vestiaire. */
+function bWorldBack() {
+  const s=mkS("back",rect(-6.7,6.7,-8.7,8.7),0x8f9496);
+  room(-7,7,-9,9,3.15,tileT,0xdedbd0);
+  bx(5.55,3.12,5.9,4.18,0,-6,0xc9c4b8,{s:1});
+  for(const side of [-1,1]) {
+    if(side<0) for(const [a,b] of [[-9,-7.05],[-4.95,-1.05],[1.05,4.95],[7.05,9]])
+      bx(.16,3.1,b-a,side*1.38,0,(a+b)/2,0xd4d0c5,{s:1});
+    else for(const [a,b] of [[-3,-1.05],[1.05,4.95],[7.05,9]])
+      bx(.16,3.1,b-a,side*1.38,0,(a+b)/2,0xd4d0c5,{s:1});
+    for(const zz of [-3,3]) bx(5.6,3.1,.16,side*4.2,0,zz,0xd4d0c5,{s:1});
+  }
+  for(const [x,z,label] of [[-1.38,-6,"RÉSERVE"],[-1.38,0,"LIVRAISONS"],[-1.38,6,"SALLE DE PAUSE"],[1.38,0,"SÉCURITÉ"],[1.38,6,"VESTIAIRE"]]) {
+    bx(.16,.55,2.1,x,2.55,z,0xd4d0c5);
+    worldPlate(label,x+(x<0?.092:-.092),2.82,z,x<0?Math.PI/2:-Math.PI/2);
+  }
+  // Éclairage fluorescent : ces luminaires et leurs lumières suivent les règles de panne.
+  for(const zz of [-6.75,-2.25,2.25,6.75]) worldTube(0,3.15,zz);
+  for(const [x,z] of [[-4.2,-6],[-4.2,0],[-4.2,6],[4.2,0],[4.2,6]]) worldTube(x,3.15,z);
+  for(const zz of [-6,0,6]) worldLight(0,2.6,zz,.65,7,0xfff3e0);
+  worldDoor("Retour au magasin",0,8.83,"z",0x7b5a3c,()=>go("shop",0,-4.6,Math.PI),{face:-1,wall:9.0,frame:0x5a3f28,title:"MAGASIN"});
+  worldDoor("Porte de la cour",0,-8.83,"z",0x8c908d,()=>go("cour",0,3.9,0),{face:1,wall:-9.0,frame:0x6f7374});
+  worldSign(["SORTIE"],0,2.72,-8.985,.95,.32,0,"exit",worldExitPaint,"sortie");
+  worldDoor("Porte du bureau du directeur",1.23,-6,"x",0x7b5a3c,worldOfficeDoor,{face:-1,wall:1.405,frame:0x5a3f28,title:"DIRECTION"});
+  cyl(.085,.5,-1.18,.62,-8.3,0xb3261e); bx(.06,.1,.12,-1.27,1.05,-8.3,0x3b3d3f);
+  // La palette est l'objet original, avec sa tâche et ses conditions d'origine.
+  const pallet=S.shop.it.find(m=>m.userData.name==="Palette de la réserve");
+  if(pallet) {
+    S.shop.it=S.shop.it.filter(m=>m!==pallet); pallet.parent.remove(pallet); s.g.add(pallet);
+    pallet.position.x-=.2; pallet.position.z-=2.2;
+    const original=pallet.userData.fn;
+    pallet.userData.fn=()=>worldMoved(-.2,-2.2,original); s.it.push(pallet);
+  }
+  shelf(-6.65,-6.3,.5,3.2,1); shelf(-4.2,-8.65,3.0,.4,0);
+  shopCarton(.62,.52,.55,-5.8,0,-8,0xcba16c,{s:1});
+  shopCarton(.5,.38,.48,-5.8,.52,-8,0xdaba84);
+  worldDoor("Couloir principal",-6.83,0,"x",0x8c908d,worldColisDoor,{face:1,wall:-7.0,frame:0x6f7374,title:"QUAI DE LIVRAISON"});
+  shopCarton(.7,.5,.55,-5.7,0,1.8,0xcba16c,{s:1});
+  shopCarton(.6,.4,.5,-4.8,0,1.8,0xb78d5d,{s:1});
+  // Ce terminal aide réellement à lire l'état du local, sans valider les tâches à distance.
+  desk(4.5,-.8);
+  it(cbx(.9,.62,.08,4.5,1.12,-.72,0x1d1f1e,{b:.03}),"État du local et surveillance",()=>{
+    const todo=TK.filter(k=>!T.tasks[k[0]]).map(k=>k[1]);
+    panel("<h1>Sécurité du local</h1><p>La salle de surveillance se trouve derrière la porte à code du bureau du directeur. Les dossiers du bureau donnent les indices.</p><p>"+(todo.length?"À préparer : "+todo.join(" · "):"Le magasin est prêt à ouvrir.")+"</p><button data-a='close'>Retour</button>");
+  });
+  worldSign([""],4.5,1.43,-.674,.84,.56,0,"screen",worldCctvPaint,"cctv");
+  worldDoor("Petite porte",5.4,3.15,"z",0x8c908d,worldBranchDoor,{face:1,wall:3.08,frame:0x6f7374,title:"LOCAL TECHNIQUE"});
+  for(let i=0;i<6;i++) {
+    const lx=1.95+i*.6; cbx(.58,1.9,.5,lx,0,8.7,0x9ea3a5,{b:.015});
+    for(const y of [1.55,1.65]) bx(.3,.03,.02,lx,y,8.445,0x6f7374);
+    bx(.03,.12,.03,lx+.2,1.0,8.44,0x3b3d3f);
+  }
+  cur.sol.push([1.66,5.54,8.45,8.95]); worldBench(3.6,6.5,0);
+  // Salle de pause : café, table, chaises et vraies consignes d'ouverture.
+  cbx(1.8,.8,.65,-5.65,0,7.35,0xbdb3a2,{s:1,b:.035}); bx(1.86,.04,.7,-5.65,.8,7.35,0xe8e2d4);
+  cbx(.62,.75,.44,-5.65,.84,7.4,0x2b2b2b,{b:.03});
+  it(cbx(.58,.5,.1,-5.65,1.05,7.13,0x8d9396,{b:.02}),"Machine à café",worldCoffee);
+  s.coffeeFlow=cyl(.012,.2,-5.65,.86,7.12,0x65422b); s.coffeeFlow.visible=false; s.coffeeFlow.userData.keep=1;
+  s.coffeeCup=cyl(.08,.13,-5.65,.84,7.12,0xf2e5cf); s.coffeeCup.userData.keep=1;
+  s.coffeeLiquid=cyl(.061,.007,-5.65,.94,7.12,0x583920);s.coffeeLiquid.userData.keep=1;s.coffeeLiquid.visible=false;
+  cbx(1.75,.08,.9,-3.2,.76,6.7,0xd9d3c5,{s:1,b:.02});
+  for(const [a,b] of [[-.8,-.38],[-.8,.38],[.8,-.38],[.8,.38]]) bx(.05,.76,.05,-3.2+a,0,6.7+b,0x5d6064);
+  [-3.65,-2.75].forEach(x=>chair(x,7.7,0x5d6064));
+  it(cbx(1.65,.9,.06,-3.6,1.18,8.75,0xb08657,{b:.015}),"Consignes du personnel",()=>panel("<h1>Avant l’ouverture</h1><p>Caisse et enseigne dans le magasin. Le carton se dépose sur la palette de la réserve, au fond à gauche du couloir. Léa prépare la vitrine, Karim les prix.</p><p>La cour donne sur la rue par le portail du fond. Pause, promenade en ville et maquette du quartier restent facultatives : seules les tâches comptent pour ouvrir.</p><button data-a='close'>Retour</button>"));
+  worldSign([""],-3.6,1.63,8.714,1.6,.86,Math.PI,"paper",worldNoticePaint,"consignes");
+  return s;
+}
+
+/** Un cadrage de la maquette révèle le nouveau bonus sans bloquer les dix autres fins. */
+function bWorldModel() {
+  const s=mkS("maquette",rect(-7,7,-8,10),0x2b2723,[20,45]);
+  cbx(11,.3,12,0,-.3,0,0x8a6a48,{b:.09});
+  for(const x of [-5.5,5.5]) bx(.18,.6,12,x,0,0,0x5a4634);
+  for(const z of [-6,6]) bx(11,.6,.18,0,0,z,0x5a4634);
+  s.mini=worldMiniature(0,0,.145,false);
+  s.g.add(new THREE.HemisphereLight(0xf2eee6,0x87755e,.7));
+  L(-2,7,5,0xffe1a6,.8,20);return s;
+}
+
+/** Machine à café de la salle de pause : lancement, attente, puis tasse prête (facultatif, hors tâches). */
+function worldCoffee() {
+  const w=worldState();
+  if(w.coffee===0) {w.coffee=1;w.coffeeTime=0;return say("Le café coule. Pour une fois, rien ne s’effondre. Attends quelques secondes.");}
+  if(w.coffee===1)return say("Il se prépare. La machine prend son temps, elle aussi.");
+  if(w.coffee===2){w.coffee=3;return say("Tu prends le café. Une pause, pas une tâche supplémentaire pour ouvrir le magasin.");}
+  say("La pause est faite. Le magasin, la cour et la ville t’attendent.");
+}
+
+/** Relève un repère de la ville, met à jour la maquette et affiche l’indice du lieu. */
+function worldMark(id,hint) {
+  const w=worldState(),fresh=!w.seen[id];w.seen[id]=true;clk();worldRefreshMarkers();
+  const q=CITY_SPEC.markers.find(q=>q.id===id), n=Object.keys(w.seen).length;
+  panel("<h1>"+q.name+"</h1><p>"+hint+"</p><p>"+(fresh?"Nouveau repère":"Repère déjà relevé")+" · "+n+"/4. "+(n===4?"Les quatre épingles de la maquette sont allumées. Reviens au kiosque de la place.":"Cette épingle s’allume sur la maquette du kiosque.")+"</p><button data-a='close'>Continuer</button>");
+}
+
+/** Allume sur les maquettes les épingles des repères déjà relevés. */
+function worldRefreshMarkers() {
+  const w=worldState();
+  for(const key of ["ville","maquette"]) {
+    const mini=S[key]&&S[key].mini;if(!mini)continue;
+    mini.leds.forEach(q=>q.m.material.color.setHex(w.seen[q.id]?0xf2b24a:0x5b5e60));
+  }
+}
+
+/** Panneau de la maquette : repères relevés et accès à la séquence bonus quand les quatre sont trouvés. */
+function worldModelPanel() {
+  const w=worldState(),n=Object.keys(w.seen).length;
+  const list=CITY_SPEC.markers.map(q=>(w.seen[q.id]?"✓ ":"○ ")+q.name).join(" · ");
+  panel("<h1>Maquette du quartier</h1><p>Les mêmes rues, le magasin, sa cour… et quatre épingles "+(n===4?"toutes allumées":n?n+" sur quatre allumée"+(n>1?"s":""):"éteintes")+". Chaque pupitre d’information du quartier porte un repère et un indice.</p><p>"+list+"</p><p>"+(n===4?"La maquette est complète. Une petite porte vient d’apparaître sur le cadre.":"Relève les quatre repères dans la ville, puis reviens examiner la maquette.")+"</p>"+(n===4?"<button data-a='worldMini'>Ouvrir la porte miniature</button>":"")+"<button data-a='close'>Revenir sur la place</button>");
+}
+
+/** Démarre la séquence de la maquette (fin bonus B2) si les quatre repères sont relevés. */
+function worldStartMini() {
+  const w=worldState();if(CITY_SPEC.markers.some(q=>!w.seen[q.id]))return worldModelPanel();
+  resume();set("maquette",0,4.4,0);T.cine=1;T.cityCine={t:0,pit:-.06};T.sy=.38;
+  $("cityskip").hidden=false;say("Tu voulais comprendre le plan. Tu as trouvé une porte dans le plan.",6500);
+}
+
+/** Termine la séquence de la maquette et déclenche la fin bonus B2 « La ville dans la ville ». */
+function worldFinishMini() {
+  if(!T.cityCine)return;delete T.cityCine;T.cine=0;$("cityskip").hidden=true;
+  say("La ville tient sur une table. Et toi, où est-ce qu’on t’a posé ?",6500);end("B2");
+}
+
+/** Les retours retrouvent leur point de départ déplacé, sans modifier les branches. */
+function worldReturn(n) {
+  if(n!=="shop" || !T.world)return null;
+  const key=CN==="office"?"office":CN==="colis"?"colis":CN==="rb"||CN==="ruin"?"branch":null;
+  return key&&T.world.returns[key]||null;
+}
+/** Mémorise d’où part le joueur pour que le retour d’une salle d’origine l’y ramène. */
+function worldRemember(key) {
+  worldState().returns[key]=[CN,px,pz,yaw+Math.PI];
+}
+
+/** Les nouveaux murs ne permettent pas de cliquer à travers les pièces voisines. */
+function worldSight(m,distance) {
+  if(!["back","cour","ville"].includes(CN))return true;
+  const visible=o=>{for(let q=o;q;q=q.parent)if(!q.visible)return false;return true;};
+  const block=rc.intersectObjects(cur.g.children,true).find(q=>{
+    const o=q.object,mat=o.material;
+    return visible(o)&&o.isMesh&&!o.userData.worldSign&&mat&&!Array.isArray(mat)&&!mat.transparent&&mat.depthWrite!==false&&q.distance<distance-.035;
+  });
+  return !block||block.object===m||block.object.userData.worldOwner===m;
+}
+
+/** Informations de lieu, café et séquence bonus ; les anciennes séquences restent prioritaires. */
+function worldUpd(dt) {
+  const w=worldState(),s=S.back;
+  if(CN==="back" && w.coffee===1) {w.coffeeTime+=dt;if(w.coffeeTime>=3){w.coffee=2;say("Le café est prêt. Tu peux prendre la tasse.");}}
+  if(s&&s.coffeeFlow){s.coffeeFlow.visible=w.coffee===1;s.coffeeCup.visible=w.coffee<3;s.coffeeLiquid.visible=w.coffee===2;}
+  const names={back:"Arrière-boutique",cour:"Cour du magasin",ville:"Ville · "+Object.keys(w.seen).length+"/4 repères",maquette:"Maquette du quartier"};
+  const hud=$("worldloc");if(hud){hud.textContent=names[CN]||"";hud.hidden=!names[CN]||ui!=="play";}
+  if(!T.cityCine)return false;
+  const c=T.cityCine;c.t+=dt;const reduced=matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const u=reduced?.9:Math.min(1,c.t/7.5),q=u*u*(3-2*u);
+  px=q*2.3;pz=4.4+q*3.4;T.sy=.38+q*5.1;T.cy=Math.atan2(px,pz+.5);c.pit=Math.atan2(.25-T.sy,Math.hypot(px,pz+.5));
+  if(c.t>(reduced?2.5:7.5))worldFinishMini();return true;
+}
+
+/** Adapte le magasin au passage arrière : vitrine de Léa, porte du personnel et vitres dépolies du fond. */
+function worldShopFinish() {
+  // Nouvelle place de la vitrine ; même tenue, visage, dialogues et fin de travail de Léa.
+  const lea=NP.find(n=>n.id==="lea");if(lea){
+    lea.spot[0]-=3.1;lea.x=-3.7;lea.z=.3;lea.g.position.set(lea.x,0,lea.z);
+    const original=lea.fin;lea.fin=(...args)=>{const previous=cur;cur=S.shop;try{return worldMoved(-3.1,0,()=>original(...args));}finally{cur=previous;}};
+  }
+  const previous=cur;cur=S.shop;
+  worldDoor("Passage vers l’arrière-boutique",0,-5.83,"z",0x7b5a3c,()=>go("back",0,7.7,0),{face:1,wall:-6.0,frame:0x5a3f28,title:"RÉSERVÉ AU PERSONNEL",handle:0xd4b060});
+  shelf(-3.6,-5.6,2,.5,0);
+  // Le mur du fond donne désormais sur la réserve : ses fenêtres deviennent du verre dépoli.
+  const frost=new THREE.MeshPhongMaterial({color:0xe3ddcd,emissive:0x3b372f,shininess:30,specular:0x222222});
+  S.shop.g.children.forEach(m=>{if(m.isMesh&&m.material===sky&&m.position.z<0)m.material=frost;});
+  cur=previous;
+}
+
+/** Construit l’arrière-boutique, la cour, la ville et la maquette, puis branche leurs actions. */
+function bWorld() {
+  worldState();bWorldBack();bWorldCour();bWorldCity();bWorldModel();worldShopFinish();
+  ACT.worldMini=worldStartMini;ACT.worldFinish=worldFinishMini;
+  worldRefreshMarkers();
+}
+// <<< CONNEX WORLD
+
+/** Point de départ déplacé ; insistance, texte et destination d’origine conservés. */
+function worldOfficeDoor() {
+  worldRemember("office");
+      T.att = (T.att || 0) + 1;
+      const A = [
+        "Le bureau du directeur ? Non, non, non. Ce n’est pas au programme.",
+        "Je t’ai dit que c’était fermé. Enfin, je crois. Je peux me tromper, mais pas aujourd’hui.",
+        "Fais-moi confiance : il n’y a rien d’intéressant là-dedans. Absolument rien.",
+      ];
+      if (T.att < 4) return say(A[T.att - 1]);
+      say("Bon. Évidemment. Tu es du genre à pousser les portes. Très bien, je n’ai rien vu.");
+      doorS();
+      go("office", -3, 0, -Math.PI / 2);
+}
+/** Petite porte d’origine (vers rb ou ruin), désormais au local technique et au passage ouest. */
+function worldBranchDoor() {
+  worldRemember("branch");
+    say("Ça ? Un placard. Aucun intérêt. Mais bon, tu fais ce que tu veux. Visiblement.");
+    doorS();
+    T.bo && !T.pw ? go("ruin", 0, 0.8, 0) : go("rb", 0, 2.2, 0);
+}
+/** Couloir principal d’origine vers le quai des colis, désormais au quai de livraison et en ville. */
+function worldColisDoor() {
+  worldRemember("colis");
+    doorS();
+    go("colis", 0, -1.5, 0);
+}
+
 // 09 · INTERFACE, FIN ET SCÉNARIO
 // ============================================================================
 
@@ -9367,6 +10257,8 @@ function setUI(u) {
   }
   if (u !== "play" && document.pointerLockElement) document.exitPointerLock();
   const p = u === "play";
+  if ($("worldloc")) $("worldloc").hidden = !p || !["back", "cour", "ville", "maquette"].includes(CN);
+  if ($("cityskip")) $("cityskip").hidden = !p || !T.cityCine;
   if (p && !TOUCH && !LF) lockReq();
   $("x").style.display = p ? "block" : "none";
   $("mb").style.display = u === "home" ? "none" : "block";
@@ -9379,9 +10271,11 @@ function setUI(u) {
  */
 /** Plein écran natif : accueil et pause, avec retour explicite et refus géré. */
 let fullscreenPending = false, fullscreenMessage = "";
+/** Indique si la page est actuellement en plein écran. */
 function gameIsFullscreen() {
   return !!(document.fullscreenElement || document.webkitFullscreenElement);
 }
+/** Met à jour le libellé et l’état des boutons Plein écran. */
 function fullscreenSync() {
   const active = gameIsFullscreen();
   document.querySelectorAll("[data-fullscreen-toggle]").forEach(button => {
@@ -9394,6 +10288,7 @@ function fullscreenSync() {
     note.hidden = !fullscreenMessage;
   });
 }
+/** Code HTML du bouton Plein écran et de son message d’état. */
 function fullscreenControls() {
   return '<button data-a="fullscreen" data-fullscreen-toggle aria-pressed="false">Plein écran</button>' +
     '<p class="fullscreen-note" data-fullscreen-status role="status" aria-live="polite" hidden></p>';
@@ -9421,6 +10316,7 @@ async function toggleFullscreen() {
     fullscreenSync();
   }
 }
+/** Réagit à l’entrée ou à la sortie du plein écran : boutons et taille du rendu. */
 function fullscreenChanged() {
   fullscreenMessage = "";
   fullscreenSync();
@@ -9429,6 +10325,7 @@ function fullscreenChanged() {
 document.addEventListener("fullscreenchange", fullscreenChanged);
 document.addEventListener("webkitfullscreenchange", fullscreenChanged);
 
+/** Affiche le panneau générique #pan avec le contenu HTML donné. */
 function ov(h) {
   $("pan").className = "o";
   document.body.classList.remove("dlg");
@@ -9505,6 +10402,8 @@ function vurl2() {
  * un obstacle. y est ici un angle, pas une hauteur.
  */
 function set(n, x, z, y) {
+  if (hov && hov.material.emissive) hov.material.emissive.setHex(hov.userData.e || 0);
+  hov = null; $("hint").style.display = "none";
   for (const k in S) S[k].g.visible = k === n;
   cur = S[n];
   shTag(cur.g);
@@ -9533,6 +10432,8 @@ function set(n, x, z, y) {
  * position ; y l’angle horizontal en radians.
  */
 function go(n, x, z, y) {
+  const returnPoint = worldReturn(n);
+  if (returnPoint) [n, x, z, y] = returnPoint;
   busy = 1;
   for (const k in keys) keys[k] = 0;
   $("fade").style.opacity = 1;
@@ -9667,7 +10568,7 @@ function end(n) {
     say("Vraiment cru que tu allais t’enfuir ? Hahaha…", 6000);
   }
   const id = fid(n),
-    bn = n === "B1",
+    bn = /^B\d+$/.test(String(n)),
     LL = bn ? SV.bonus : SV.main,
     nw = !LL.includes(id);
   let fin = false,
@@ -9727,6 +10628,9 @@ function afterEnd() {
     T.fr = 0;
     T.k = 0;
     go("colis", 0, -10.5, Math.PI);
+  } else if (n === "B2") {
+    T.cine = 0; delete T.cityCine; delete T.sy;
+    go("ville", 0, 22.25, Math.PI);
   } else if (n === "B1") go("collapse", 0, 3, 0);
   else if (n === 9) {
     T.mys = 2;
@@ -9781,14 +10685,13 @@ function regH(hl) {
       (SV.main.includes(i) ? i + " — " + NM[n] + (i === hl ? " ★ nouveau" : "") : "? — ?") +
       "</div>";
   }
-  return (
-    h +
-    "<hr><div>Bonus : " +
-    (SV.bonus.length
-      ? "FIN-B001 — Entorse au pied" + (hl === "FIN-B001" ? " ★ nouveau" : "")
-      : "? — ?") +
-    "</div></div>"
-  );
+  // Une ligne par fin bonus, sans titre : l’écran de fin garde presque sa hauteur d’origine.
+  h += "<hr>";
+  for (const key of ["B1", "B2"]) {
+    const i = fid(key);
+    h += "<div>" + (SV.bonus.includes(i) ? i + " — " + NM[key] + (i === hl ? " ★ nouveau" : "") : "Bonus : ? — ?") + "</div>";
+  }
+  return h + "</div>";
 }
 
 /**
@@ -10577,6 +11480,7 @@ function npcUpd(dt) {
  * qu’aucune transition n’est en cours. Le ciblage est préparé par le raycaster dans upd().
  */
 function use() {
+  if (T.cityCine) return;
   if (hov && !busy && ui === "play") hov.userData.fn();
 }
 
@@ -10929,6 +11833,8 @@ function upd(dt) {
     }
   }
 
+  if (worldUpd(dt)) return;
+
   // Priorité 1 : une chute remplace le déplacement normal et se termine par une transition ou une fin.
   if (T.fall) {
     bob = 0;
@@ -11076,7 +11982,7 @@ function upd(dt) {
   if (++HF % 2) return;
   rc.setFromCamera({ x: 0, y: 0 }, cam);
   const h = rc.intersectObjects(cur.it, false).find((q) => q.object.visible),
-    m = h && h.distance < 3.4 ? h.object : null;
+    m = h && h.distance < 3.4 && worldSight(h.object, h.distance) ? h.object : null;
   if (m !== hov) {
     if (hov && hov.material.emissive) hov.material.emissive.setHex(hov.userData.e || 0);
     hov = m;
@@ -11137,7 +12043,7 @@ function loop() {
   }
   if (T.cine) {
     yaw = T.cy || 0;
-    pit = 0.02;
+    pit = T.cityCine ? T.cityCine.pit : 0.02;
     my = mp = 0;
   }
   if (CN === "dark" && S.dark && S.dark.sv.readyState >= 2) S.dark.vt.needsUpdate = true;
@@ -11173,6 +12079,7 @@ function loop() {
 // ============================================================================
 // DÉMARRAGE · préparer le décor, placer la caméra puis lancer les images
 // ============================================================================
+$("cityskip").onclick = worldFinishMini;
 build();
 set("shop", 0, 4, 0);
 loop();
