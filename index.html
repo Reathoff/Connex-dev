@@ -6221,15 +6221,8 @@ function dxLampB(M, c, a) {
 const DXR = {
   shop() {
     const rm = [-6.96, 6.96, -5.96, 5.96];
-    // Mur du fond (derrière le joueur au départ) : horloge, tableaux et panneau d’annonces.
     dxAt("s", rm, -2.35, 1.65, () => dxClock(0.2));
-    dxAt("s", rm, -4.0, 1.5, () => dxFrame(1.2, 0.8, 0, 0x4a2a14));
-    dxAt("s", rm, -5.45, 1.6, () => dxFrame(0.55, 0.75, 2));
     dxAt("s", rm, 3.05, 1.35, () => dxBoard(0.9, 0.95, 2));
-    // Le passage vers la cour reste dégagé : aucun tableau sur son ouverture.
-    // Murs latéraux : un grand tableau face au couloir, un portrait près de la lampe.
-    dxAt("w", rm, 1.7, 1.45, () => dxFrame(1.1, 0.8, 1, 0x4a2a14));
-    dxAt("e", rm, 4.25, 1.5, () => dxFrame(0.7, 0.9, 2));
     // Lumière du jour qui tombe des deux fenêtres sur le parquet.
     const b = fxL(cur, 0xffe2a0);
     [-3.5, 3.5].forEach((x) =>
@@ -6508,6 +6501,63 @@ function fin1(k) {
 // ============================================================================
 // 07 · SALLES, OBJETS ET ÉVÉNEMENTS
 // ============================================================================
+/** Le fond de caisse impose un vrai aller-retour au bureau, sans toucher aux fins annexes. */
+function localOpeningState() {
+  const local = T.local || (T.local = {});
+  return local.opening || (local.opening = { floatTaken: false, floatInstalled: false });
+}
+function localTakeFloat() {
+  const a = localOpeningState();
+  if (CN !== "staff" || a.floatTaken) return false;
+  a.floatTaken = true;
+  T.tasks.fonds = 1;
+  clk(); hud();
+  say("Tu récupères le fond de caisse. Il ne reste qu’à le déposer dans le tiroir de la boutique.");
+  return true;
+}
+function localStartTill() {
+  const a = localOpeningState();
+  if (T.tasks.caisse) return say("Le tiroir est prêt, la caisse est allumée.");
+  if (!a.floatTaken) return say("Le tiroir est vide. Le fond de caisse est resté sur le premier bureau à l’étage. Va le chercher avant d’ouvrir.");
+  a.floatInstalled = true;
+  T.tasks.caisse = 1;
+  clk(); hud();
+  say("Tu ranges les billets et les pièces dans le tiroir, puis allumes la caisse. Cette fois, on pourra rendre la monnaie.");
+}
+// Carrelage clair de boutique : joints discrets, pas de tapis de salon.
+const retailFloorT = (rx,ry) => tex((g,n) => {
+  g.fillStyle = "#c9c9ba"; g.fillRect(0,0,n,n);
+  for(let x=0;x<4;x++) for(let y=0;y<4;y++) {
+    g.fillStyle = (x+y)%2 ? "#e2dfcd" : "#d9d8c8";
+    g.fillRect(x*n/4+1,y*n/4+1,n/4-2,n/4-2);
+  }
+},256,rx/2,ry/2);
+/** Rayonnage commercial : montants, tablettes, paquets et bocaux, pas de livres. */
+function retailRack(x,z,w,turn=0) {
+  const owner=cur, start=cur.g.children.length;
+  const d=.56;
+  [-1,1].forEach(k=>cbx(.065,2.05,d,k*(w/2-.05),0,0,0x47605c));
+  bx(w,2.05,.035,0,0,-.25,0xc7cbbb);
+  for(let row=0;row<4;row++) {
+    const y=.12+row*.48;
+    cbx(w,.055,d,0,y,0,0xc1b593);
+    for(let j=0;j<Math.floor(w/.31);j++) {
+      const u=-w/2+.2+j*.31, c=[0xa15c40,0xc7af69,0x598780,0xd4b68a,0x6f8270][(j+row)%5];
+      if((j+row)%3===0) {
+        lcyl(.095,.095,.25,u,y+.055,0,c,{n:8});
+        lcyl(.098,.098,.035,u,y+.305,0,0x43504b,{n:8});
+      } else {
+        cbx(.22,.30,.29,u,y+.055,0,c,{b:.01});
+        bx(.15,.10,.005,u,y+.17,.148,0xeee8d2);
+      }
+    }
+  }
+  const parts=owner.g.children.slice(start);
+  const group=new THREE.Group(); owner.g.add(group);
+  parts.forEach(m=>{owner.g.remove(m);group.add(m);});
+  group.position.set(x,0,z);group.rotation.y=turn;
+  owner.sol.push(turn ? [x-d/2,x+d/2,z-w/2,z+w/2] : [x-w/2,x+w/2,z-d/2,z+d/2]);
+}
 function bShop() {
   // Même tentative : garder travail en cours, choix et pose des PNJ lors d’un rebuild.
   const previousStaff = T.localShopBuilt
@@ -6525,7 +6575,7 @@ function bShop() {
     : [];
   T.localShopBuilt = true;
   mkS("shop", rect(-6.6, 6.6, -5.6, 5.6), 0xcfe3f0);
-  localShell(-7, 7, -6, 6, 3, woodT, 0xe0cda8, { n: [[-1.6, 1.6]], s: [[3.8, 6.2]] });
+  localShell(-7, 7, -6, 6, 3, retailFloorT, 0xd9ddcd, { n: [[-1.6, 1.6]], s: [[3.8, 6.2]] });
   L(0, 2.6, 0, 0xffe0a8, 0.7, 16);
   L(-4.5, 2.6, -3, 0xffe0a8, 0.5, 12);
   L(4.5, 2.6, -3, 0xffe0a8, 0.5, 12);
@@ -6543,61 +6593,15 @@ function bShop() {
     lcyl(0.012, 0.012, 0.2, p[0], 2.8, p[1], 0x2a2a32, { n: 4 });
     lcyl(0.05, 0.05, 0.025, p[0], 2.975, p[1], 0x2a2a32, { n: 6 });
   });
-  // Boiseries en relief sous la cimaise, interrompues par les portes et les meubles.
-  const PAN = (a, b, f) => {
-    const n = Math.max(1, Math.round((b - a) / 1.1)),
-      s = (b - a) / n;
-    for (let i = 0; i < n; i++) f(a + s * (i + 0.5), s - 0.14);
-  };
-  [
-    [-6.8, -1.7],
-    [1.7, 6.8],
-  ].forEach((r) =>
-    PAN(r[0], r[1], (u, w) => shopPanel(w, 0.56, 0.02, 0.035, u, 0.64, -5.96, 0x7a5530, 0)),
-  );
-  [
-    [-6.8, -0.9],
-    [0.9, 3.65],
-    [6.35, 6.8],
-  ].forEach((r) =>
-    PAN(r[0], r[1], (u, w) => shopPanel(w, 0.56, 0.02, 0.035, u, 0.64, 5.96, 0x7a5530, Math.PI)),
-  );
-  [
-    [-5.8, -3.7],
-    [0.7, 2.75],
-    [4.25, 5.8],
-  ].forEach((r) =>
-    PAN(r[0], r[1], (u, w) =>
-      shopPanel(w, 0.56, 0.02, 0.035, -6.96, 0.64, u, 0x7a5530, Math.PI / 2),
-    ),
-  );
-  [
-    [-5.8, -3.95],
-    [-2.45, 0.9],
-    [2.7, 5.8],
-  ].forEach((r) =>
-    PAN(r[0], r[1], (u, w) =>
-      shopPanel(w, 0.56, 0.02, 0.035, 6.96, 0.64, u, 0x7a5530, -Math.PI / 2),
-    ),
-  );
-  // Tapis bordé : bordure sombre, champ bleu, filets crème et franges.
-  shopBox(4, 0.012, 3, 0, 0, 1, lpTint(0x4b6a8c, 0.72));
-  shopBox(3.64, 0.02, 2.64, 0, 0, 1, 0x4b6a8c);
-  [
-    [3.3, 0.035, 0, -0.17],
-    [3.3, 0.035, 0, 2.17],
-    [0.035, 2.34, -1.65, 1],
-    [0.035, 2.34, 1.65, 1],
-  ].forEach((a) => shopBox(a[0], 0.024, a[1], a[2], 0, a[3], 0xe8e0d0));
-  [-1, 1].forEach((k) => {
-    const p = [];
-    for (let i = 0; i <= 14; i++) p.push([i % 2 ? 0.09 : 0.02, -1.45 + (i * 2.9) / 14]);
-    p.push([0, 1.45], [0, -1.45]);
-    lprism(p, 0.008, k * 2, 0.004, 1, 0xe8e0d0, { rx: -Math.PI / 2, ry: k < 0 ? Math.PI : 0 });
+  // Vitrages simples et rayons muraux : une boutique ouverte, plus un salon.
+  [-3.5,3.5].forEach(x=>{
+    cbx(2.4,1.22,.08,x,1.35,-5.88,0x48645d,{b:.015});
+    bx(2.23,1.08,.09,x,1.42,-5.82,0,{m:sky});
+    bx(.045,1.1,.035,x,1.41,-5.75,0x48645d);
   });
-  win(-3.5, 1.5, -5.88);
-  win(3.5, 1.5, -5.88);
-  shelf(-6.6, -1.5, 0.5, 4, 1);
+  retailRack(-6.55,-.35,3.1,Math.PI/2);
+  retailRack(4.5,-5.43,3.0);
+  const counterStart=cur.g.children.length, counterSol=cur.sol.length;
   // Axe nord dégagé : accès aux annexes de service.
   // Comptoir : socle en retrait, caisson chanfreiné, panneaux en relief, plateau.
   shopBox(3.9, 0.1, 0.9, 0, 0, -2.5, 0x6a3f1a);
@@ -6649,15 +6653,7 @@ function bShop() {
       { ry: -Math.PI / 2 },
     ),
     "Caisse",
-    () => {
-      if (T.tasks.caisse) return say("Elle est déjà allumée. Ne la fatigue pas.");
-      T.tasks.caisse = 1;
-      clk();
-      hud();
-      say(
-        "Caisse allumée. Elle fait un petit bruit de contentement. Ne la prends pas trop au sérieux.",
-      );
-    },
+    localStartTill,
   );
   shopMesh(
     (g) => {
@@ -6681,6 +6677,9 @@ function bShop() {
   cbx(0.24, 0.1, 0.03, -1, 1.4, -2.66, 0x20262e, { b: 0.008, rx: -0.2 });
   shopBox(0.07, 0.07, 0.004, -0.83, 1.35, -2.62, 0xf6e8cc, { rx: -0.3 });
 
+  // Comptoir latéral : l’axe vers l’arrière-boutique reste libre.
+  cur.g.children.slice(counterStart).forEach(m=>m.position.x-=3.6);
+  cur.sol.slice(counterSol).forEach(r=>{r[0]-=3.6;r[1]-=3.6;});
   // Trois cartons indépendants au sol ; la réserve est désormais une vraie annexe.
   localCartons();
   // Enseigne : fond sombre, panneau lumineux sg bordé d’ampoules, emblème en silhouette.
@@ -6734,13 +6733,12 @@ function bShop() {
   shopBox(1.12, 0.03, 0.03, 1.755, 2.49, 5.975, 0xe8e0d0);
 
   localDoor(0, -5.87, false, "Porte du dégagement — réserve et escalier", "localhall", 0, 4.4, 0);
-  localSign("ANNEXES · RÉSERVE · ÉTAGE", 0, 2.58, -5.77, 0, 2.8);
   localDoor(5, 5.87, false, "Porte de la cour", "cour", 0, 3.5, 0);
-  localSign("COUR EXTÉRIEURE · PAUSE", 5, 2.58, 5.77, Math.PI, 2.4);
 
   // Interaction « Porte d’entrée » : le nom sert à l’indication de visée, et la fonction passée en dernier définit l’action.
   const d = it(cbx(1.2, 2.2, 0.12, 0, 0, 5.9, 0x5b3a1e, { b: 0.02 }), "Porte d’entrée", () => {
     if (T.bo && !T.pw) return say("On n’ouvre pas dans le noir. Enfin… je crois.");
+    if (!localOpeningState().floatInstalled) return say("Il manque le fond de caisse : récupère-le au bureau à l’étage, puis prépare le tiroir de la caisse.");
     const r = TK.filter((k) => (k[0] === "carton" ? localCartonCount() < 3 : !T.tasks[k[0]]));
     if (r.length)
       return say("Pas encore ! Il reste : " + r.map((k) => k[1].toLowerCase()).join(", ") + ".");
@@ -6812,25 +6810,14 @@ function bShop() {
   // Palier sud-est libre pour le retour depuis la cour (5, 4).
   plant(6.2, -5.2);
   plant(-6.3, 5.4);
-  desk(4.5, -4.6);
-  lamp(-5.5, -5.2);
-  lamp(5.8, 4.6);
+  // Deux îlots de vente bas, accessibles sans masquer les portes narratives.
   disp(-4.2, 1.6);
   disp(4.2, -0.4);
-  art(6.86, 1.3, -0.7, 1, 0x6aa0d0, 0xe0a050);
-  art(-6.86, 1.3, -4.8, 1, 0x7ab070, 0xd08a40);
-  // Fauteuil : piètement, caisse, coussins, accoudoirs arrondis et coussin moutarde.
-  [-1, 1].forEach((i) =>
-    [-1, 1].forEach((j) =>
-      lcyl(0.025, 0.02, 0.08, -2.2 + i * 0.38, 0, 3 + j * 0.33, 0x4a2a14, { n: 5 }),
-    ),
-  );
-  cbx(0.9, 0.3, 0.8, -2.2, 0.08, 3, 0x266866, { s: 1, b: 0.04 });
-  cbx(0.62, 0.12, 0.66, -2.2, 0.36, 2.95, 0x2f7a78, { b: 0.04 });
-  cbx(0.9, 0.62, 0.2, -2.2, 0.36, 3.33, 0x266866, { b: 0.05, rx: 0.12 });
-  cbx(0.6, 0.42, 0.1, -2.2, 0.5, 3.2, 0x2f7a78, { b: 0.04, rx: 0.12 });
-  [-2.7, -1.7].forEach((xx) => cbx(0.16, 0.44, 0.82, xx, 0.36, 3, 0x266866, { b: 0.06 }));
-  lrock(0.14, -2.45, 0.62, 3.1, 0xe0a030, { d: 0, sx: 1, sy: 0.8, sz: 0.45, j: 0.02 });
+  // Paniers de réserve sous l’îlot ouest et lots de produits sur son plateau.
+  [-.45,0,.45].forEach((k,i)=>{
+    cbx(.32,.24,.38,-4.2+k,.88,1.6,[0x688577,0xbe9c61,0xab6649][i],{b:.015});
+    bx(.18,.09,.006,-4.2+k,.96,1.797,0xeee5cf);
+  });
   // Table du centre (vide, prête pour la vitrine) : socle à panneaux et plateau.
   shopBox(0.96, 0.05, 0.46, 0, 0, 1.3, 0x6a3f1a);
   cbx(1.0, 0.3, 0.5, 0, 0.05, 1.3, 0x8a5526, { b: 0.03 });
@@ -6850,11 +6837,11 @@ function bShop() {
   } else NP.length = 0;
 }
 
-// >>> LP-LOCAL STAFF/COUR — additions isolées, aucune quête validée ici.
+// >>> LP-LOCAL STAFF/COUR — fond de caisse obligatoire ; pauses facultatives.
 /**
  * Hook build : appeler bStaffRooms() avant la boucle fin1(). Hook simulation : appeler
- * localStaffUpd(dt) avant le ciblage. Les deux salles restent facultatives.
- * État de tentative exclusivement T.local.staff ; aucun carton, PNJ ou secret modifié.
+ * localStaffUpd(dt) avant le ciblage. Le bureau est obligatoire pour le fond de caisse ; les pauses restent facultatives.
+ * États de tentative T.local.staff et T.local.opening ; aucun secret modifié.
  * Le groupe staff représente le premier étage (coordonnées locales au sol, comme office).
  * QA après fin1 : staff 102 meshes / 8662 triangles ; cour 23 / 1280.
  * Budgets de géométrie, non une promesse de FPS ; rapport docs/STAFF_COUR.md.
@@ -6947,7 +6934,6 @@ function bStaffRooms() {
   partition("z", 5.5, 1, 10, 5.5);
   partition("x", 1, 5.5, 11);
   bx(18.8, 0.012, 1.8, 0, 0.005, 4, 0x8d5940);
-  label("1er étage|Bureaux · Équipe", 0, 2.4, -4.84, 1.6);
   const docs = [
     [
       "Organisation",
@@ -6967,9 +6953,19 @@ function bStaffRooms() {
   ];
   [-7.4, -2.1, 3.2].forEach((x, i) => {
     desk(x, -2.2);
-    label(docs[i][0], x, 2.1, -4.84, 1.5);
-    label(docs[i][0], x, 2.45, 2.61, 1.3);
-    it(bureauFolder(x, 0.865, -1.85, [0x687e7b, 0xb77e44, 0x747d9b][i]), docs[i][1], () =>
+    if (i === 0) {
+      const box = it(cbx(.54,.13,.38,x,.865,-1.85,0x3d635b,{b:.018}), "Fond de caisse — prendre", () => {
+        if(localTakeFloat()) box.visible=false;
+      });
+      const add=(m)=>{st.g.remove(m);box.add(m);return m;};
+      // Argent visible dans une petite boîte ouverte ; aucune pancarte flottante.
+      add(bx(.42,.025,.27,0,.055,0,0x273f3c));
+      add(bx(.23,.025,.13,-.065,.085,0,0xa6b98b));
+      add(bx(.16,.003,.03,-.065,.111,0,0xdedbc0));
+      [.08,.16].forEach(u=>add(lcyl(.038,.038,.025,u,.09,.07,0xc5a362,{n:8})));
+      box.userData.keep=1;
+      box.visible=!localOpeningState().floatTaken;
+    } else it(bureauFolder(x, 0.865, -1.85, [0x687e7b, 0xb77e44, 0x747d9b][i]), docs[i][1], () =>
       read(docs[i][1], docs[i][2]),
     );
     plant(x + 1.6, 0.7);
@@ -6983,12 +6979,7 @@ function bStaffRooms() {
   cbx(2.36, 0.065, 0.065, 8, 1, 3.3, 0x344c4c);
   for(let x=6.9;x<9.2;x+=0.55) cbx(0.045,1,0.045,x,0,3.3,0x344c4c);
   cur.sol.push([6.85,9.15,3.27,3.33]);
-  label("Escalier|Magasin · Réserve", 8, 2.35, -4.84, 1.4);
-  [-3, 5.5].forEach(x => [-.45,.45].forEach(k => bx(.018,.12,.018,x+k,2.88,5.39,0x46605d)));
-  label("Coin pause", -3, 2.45, 5.39, 1.3);
-  label("Salle commune", 5.5, 2.45, 5.39, 1.3);
   // Salle commune : tableau papier (aucune copie de PNJ dialoguable).
-  label("Salle commune", 6, 2.35, 10.84, 2);
   const board = it(
     bx(2.3, 1.1, 0.12, 6, 1.05, 10.78, 0x668277),
     "Tableau d'équipe — Léa / Karim",
@@ -7006,9 +6997,11 @@ function bStaffRooms() {
       );
     },
   );
-  label("LÉA · VITRINE|KARIM · PRIX", 6, 1.3, 10.7, 1.8);
-  // Étiquettes du tableau non opaques au rayon : le fond est la cible, juste derrière.
-  st.g.children[st.g.children.length - 1].material.depthWrite = false;
+  [-.65,0,.65].forEach((u,i)=>{
+    const paper=bx(.42,.60,.015,0,0,0,0xe5dbc3);
+    st.g.remove(paper);board.add(paper);paper.position.set(u,.0,.072);
+    paper.rotation.z=(i-1)*.07;
+  });
   bx(2.5, 0.1, 1.1, 6, 0.75, 8.5, 0x9b673a, { s: 1 });
   [-1, 1].forEach((s) => {
     bx(0.14, 0.75, 0.7, 6 + s, 0, 8.5, 0x6a4e36);
@@ -7050,7 +7043,6 @@ function bStaffRooms() {
   st.cat = { cat, head, eyes, tail };
   mobile(cat, st.localAnim);
   // Coin café : la préparation remplit réellement une tasse, puis une seconde action boit.
-  label("Coin café|Préparer · puis boire", -6, 2.3, 10.84, 2);
   bx(3, 0.85, 0.8, -6, 0, 7, 0x8a6341, { s: 1 });
   cbx(3.1, 0.08, 0.9, -6, 0.85, 7, 0xd9c7a8);
   const machine = it(
@@ -7119,8 +7111,6 @@ function bStaffRooms() {
   bx(11, 2.3, 0.22, 0, 0, 5, 0xb9aa8b);
   [-1,1].forEach(k => bx(4.3, 2.3, 0.22, k*3.35, 0, -5, 0xb9aa8b));
   bx(2.4, 0.3, 0.22, 0, 2.7, -5, 0xb9aa8b);
-  label("Cour du personnel", 0, 1.45, 4.84, 2);
-  label("Boutique · Accès libre", 2.7, 1.75, -4.84, 1.8, Math.PI);
   // Banc à gauche : trajet entrée/station libre sur plus de 2 m.
   cbx(2.7, 0.12, 0.65, -3.4, 0.48, -2.5, 0x8e6242, { s: 1 });
   cbx(2.7, 0.5, 0.1, -3.4, 0.6, -2.8, 0x8e6242);
@@ -7349,8 +7339,8 @@ function localStoreCarton(slot) {
   return true;
 }
 
-/** Plaques lisibles, sans interaction ni recoloration du contour cyan existant. */
-function localSign(text, x, y, z, yaw = 0, w = 2.4) {
+/** Petites étiquettes de colis, sans panneaux directionnels. */
+function localSign(text, x, y, z, yaw = 0, w = 2.5) {
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(128, Math.ceil((w / 0.3) * 128));
   canvas.height = 128;
@@ -7425,9 +7415,7 @@ function bLocalHall() {
   L(0, 3, 2, 0xffe7bc, 0.8, 14);
   L(0, 3, -3, 0xffe7bc, 0.7, 12);
   localDoor(0, 5.87, false, "Porte du magasin", "shop", 0, -4.3, Math.PI);
-  localSign("MAGASIN · RDC", 0, 2.65, 5.75, Math.PI);
   localDoor(-3.87, -1, true, "Porte de la réserve", "reserve", 3.5, 1.5, Math.PI / 2);
-  localSign("RÉSERVE · R1 / R2 / R3", -3.75, 2.65, -1, Math.PI / 2);
   // Un vrai escalier de vingt marches : 3,6 m de dénivelé sur 6,6 m de recul.
   for (let i = 0; i < 20; i++) {
     const z = 1.8 - (i + 0.5) * 0.33, h = (i + 1) * 0.18;
@@ -7442,18 +7430,17 @@ function bLocalHall() {
     const rail = cbx(0.065, 0.065, Math.hypot(6.6, 3.6), 2.25 + k * 1.13, 2.72, -1.5, 0x344c4c);
     rail.rotation.x = Math.atan2(3.6, 6.6);
   });
-  localSign("BUREAUX · ÉTAGE", 2, 2.65, -5.85, 0, 2.6);
-  localSign("ESCALIER · ACCÈS LIBRE", 3.84, 2.2, 2.6, -Math.PI / 2, 2.5);
-  localSign("DÉGAGEMENT · RDC", -1.4, 2.8, -5.85, 0, 3.4);
-  const board = it(cbx(2.3, 1.15, 0.12, -1.1, 0.95, -5.82, 0x193b40), "Consignes du RDC", () =>
+  const board = it(cbx(2.3, 1.15, 0.12, -1.1, 0.95, -5.82, 0x97764e), "Note de service", () =>
     say(
-      "Magasin au sud. Réserve à l’ouest : trois cartons, trois emplacements. Escalier au nord-est : personnel. Termine caisse, enseigne, vitrine et prix ; rétablis le courant si nécessaire, puis ouvre l’entrée du magasin.",
+      "Le fond de caisse est resté sur le premier bureau à l’étage. Redescends le mettre dans la caisse. Les trois cartons vont sur les palettes de la réserve ; Léa et Karim s’occupent de la présentation avec toi.",
       12000,
     ),
   );
-  localSign("CONSIGNES · VISER ET APPUYER SUR E", -1.1, 1.55, -5.74, 0, 2.2);
   board.userData.keep = 1;
-  bx(0.09, 0.012, 8.5, -0.25, 0.005, 0.3, 0xbda368);
+  [-.65,0,.65].forEach(u=>{
+    const paper=bx(.45,.65,.015,0,0,0,0xe8e0cb);
+    cur.g.remove(paper);board.add(paper);paper.position.set(u,0,.075);
+  });
 }
 
 /** Vraie réserve : stockage hors des circulations, trois zones de dépôt distinctes. */
@@ -7463,11 +7450,8 @@ function bLocalReserve() {
   L(-2, 2.8, 0, 0xffe9c3, 0.8, 14);
   L(2, 2.8, 0, 0xffe9c3, 0.7, 12);
   localDoor(4.87, 1.5, true, "Porte du dégagement", "localhall", -2.5, -1, -Math.PI / 2);
-  localSign("DÉGAGEMENT · MAGASIN · ESCALIER", 4.75, 2.65, 1.5, -Math.PI / 2, 3);
-  localSign("RÉSERVE · UN CARTON PAR EMPLACEMENT", 0, 2.65, -3.84, 0, 5.6);
   shelf(-4.55, 0.2, 0.65, 4, 1);
   shelf(-1, 3.5, 3.3, 0.6, 0);
-  localSign("STOCK · ALLÉE À LAISSER LIBRE", -1, 2.1, 3.15, Math.PI, 3.4);
   [
     ["R1", -2.6],
     ["R2", 0],
@@ -7485,21 +7469,17 @@ function bLocalReserve() {
       cur = keep;
     };
     if (stored) draw(stored);
-    // Borne devant la palette, assez haute pour viser sans que le carton la masque.
-    // Pied et socle visuels : la borne est posée au sol, pas suspendue dans l’allée.
-    cbx(0.12, 0.72, 0.1, x, 0, -1.76, 0x315a5d, { b: 0.015 });
-    cbx(0.42, 0.04, 0.34, x, 0, -1.76, 0x253c3e, { b: 0.012 });
+    // La palette elle-même reçoit le carton ; plus de borne façon écran.
     const target = it(
-      cbx(0.8, 0.35, 0.12, x, 0.7, -1.74, 0x315a5d),
-      "Dépôt " + slot + " — poser le carton",
+      cbx(1.65, 0.04, 1.06, x, 0.12, -2.4, 0xb58e59),
+      "Palette " + slot + " — poser le carton",
       () => {
         const id = T.carry;
         if (localStoreCarton(slot)) draw(id);
       },
     );
     target.userData.keep = 1;
-    localSign(slot, x, 0.88, -1.67, 0, 0.6);
-    localSign(slot + " · DÉPÔT", x, 1.75, -3.82, 0, 1.7);
+    localSign(slot, x, 0.09, -1.785, 0, 0.24);
   });
 }
 
@@ -10242,7 +10222,8 @@ function dossier(i) {
  * libellé visible. T.tasks utilise les clés ; hud() utilise les libellés.
  */
 const TK = [
-  ["caisse", "Allumer la caisse"],
+  ["fonds", "Récupérer le fond de caisse à l’étage"],
+  ["caisse", "Préparer la caisse"],
   ["carton", "Ranger les cartons à la réserve"],
   ["enseigne", "Allumer l’enseigne"],
   ["vitrine", "Léa : préparer la vitrine"],
@@ -10255,7 +10236,7 @@ const TK = [
  */
 function hud() {
   const bl = T.bo && !T.pw,
-    tk = SV.gone ? TK.slice(0, 3) : TK;
+    tk = SV.gone ? TK.filter(k => k[0] !== "vitrine" && k[0] !== "prix") : TK;
   const count = localCartonCount(),
     cartons =
       "Cartons rangés : " + count + "/3" + (T.carry ? " · Porté : " + T.carry : " · Mains libres"),
@@ -10267,7 +10248,6 @@ function hud() {
       cour: "Extérieur · Cour",
     }[CN];
   $("hud").innerHTML =
-    (place ? "<b>" + place + "</b><br>" : "") +
     (bl ? "<b>Panne de courant</b><br>" : "") +
     tk
       .map((k) => {
@@ -10505,7 +10485,7 @@ function newAttempt() {
   set("shop", 0, 4, 0);
   lockReq();
   say(
-    "Bonjour, bonjour ! Nouvelle journée, nouvelle boutique. Il y a la caisse à allumer, trois cartons C1, C2 et C3 à ranger dans la réserve et l’enseigne." +
+    "Bonjour, bonjour ! Nouvelle journée, nouvelle boutique. Le fond de caisse est resté sur le premier bureau à l’étage. Va le chercher, puis prépare la caisse en redescendant. Il y a aussi les trois cartons à ranger dans la réserve et l’enseigne à allumer." +
       (T.bo || SV.gone ? "" : " Léa et Karim te diront pour le reste.") +
       " Rien de compliqué. Rien de dangereux non plus.",
   );
