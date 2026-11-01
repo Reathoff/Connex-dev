@@ -249,6 +249,18 @@ input[type="text"] {
   z-index: 6;
   display: none;
 }
+/* Bouton du plan du quartier, sous le bouton de pause (ville seulement). */
+#wmapb {
+  position: fixed;
+  top: 60px;
+  right: 8px;
+  width: 44px;
+  padding: 0;
+  z-index: 6;
+}
+#wmapb[hidden] {
+  display: none;
+}
 /* Point de visée au centre : le raycaster vise ce même centre. */
 #x {
   position: fixed;
@@ -502,6 +514,8 @@ body.dlg #c {
     <button id="cityskip" hidden>Passer la séquence</button>
     <!-- Bouton de pause. -->
     <button id="mb">☰</button>
+    <!-- Plan du quartier (ville seulement ; touche M au clavier). -->
+    <button id="wmapb" hidden aria-label="Plan du quartier">🗺</button>
     <!-- Nom de l’objet visé. -->
     <div id="hint"></div>
     <!-- Indication de capture souris et de clic-glisser de secours. -->
@@ -530,8 +544,9 @@ body.dlg #c {
       <button id="hrst">Réinitialiser le jeu</button>
       <p class="help">
         PC : ZQSD/WASD pour marcher, souris pour regarder (clique dans le jeu ; Échap = menu),
-        flèches ←/→ pour tourner, clic ou E pour agir, F lampe · Mobile : glisser à gauche =
-        marcher, à droite = regarder, bouton E
+        flèches ←/→ pour tourner, clic ou E pour agir, F lampe, Maj pour courir dehors, M pour le
+        plan de la ville · Mobile : glisser à gauche = marcher, à droite = regarder, bouton E,
+        bouton 🗺 pour le plan
       </p>
     </div>
 
@@ -1335,6 +1350,7 @@ function initA() {
     d = b.getChannelData(0);
   for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
   nb = b;
+  ambInit();
   setInterval(mus, 200);
 }
 
@@ -1419,7 +1435,7 @@ const stepS = () => {
         stars: 1500,
         pods: 700,
         dark: 500,
-      }[n] * rnd(0.8, 1.2),
+      }[n] * worldStepK() * rnd(0.8, 1.2),
       0.55,
       b ? "bandpass" : "lowpass",
     );
@@ -1501,6 +1517,7 @@ function note(m, b, t, l, bl) {
  * l’écran d’inactivité le demandent.
  */
 function mus() {
+  if (AC) ambUpd(AC.currentTime);
   if (!AC || silent || ui === "idle") return;
   const now = AC.currentTime;
   if (nx < now) nx = now + 0.05;
@@ -5382,6 +5399,10 @@ function fxUpd(t) {
     r.sky.position.set(px, 0, pz);
     r.sky.updateMatrix();
   }
+  if (r.skyG) {
+    r.skyG.position.set(px, 0, pz);
+    r.clouds.rotation.y = t * 0.006;
+  }
   const D = r.dust;
   if (!D) return;
   const A = D.pts.geometry.attributes.position,
@@ -6127,7 +6148,7 @@ function mergeG(g) {
       m.isInstancedMesh ||
       m.userData.name ||
       m.userData.keep ||
-      m.material.map ||
+      (m.material.map && !m.material.userData.merge) ||
       m.material.transparent ||
       m.material.type === "ShaderMaterial"
     )
@@ -6209,9 +6230,10 @@ function fin1(k) {
   fxFlush(S[k]);
   fxAtmo(k);
   mergeG(S[k].g);
+  worldShade(S[k]);
   if (k !== "stars")
     S[k].g.traverse((o) => {
-      if (o.isMesh) {
+      if (o.isMesh && !o.userData.live) {
         o.updateMatrix();
         o.matrixAutoUpdate = false;
       }
@@ -9578,7 +9600,7 @@ function worldRoofFlat(x,z,w,d,h,c=0xc9c1b1) {
 function worldRoofGable(x,z,w,d,h,rise,c,wall,alongZ) {
   const span=alongZ?w:d,length=(alongZ?d:w)+.5,half=span/2+.35,slope=Math.hypot(half,rise),a=Math.atan2(rise,half);
   for(const k of [-1,1]) {
-    const m=new THREE.Mesh(new THREE.BoxGeometry(alongZ?slope:length,.14,alongZ?length:slope),fm(c));
+    const m=worldRoofSlab(new THREE.BoxGeometry(alongZ?slope:length,.14,alongZ?length:slope),c,alongZ);
     if(alongZ){m.position.set(x+k*half/2,h+rise/2,z);m.rotation.z=-k*a;}else{m.position.set(x,h+rise/2,z+k*half/2);m.rotation.x=k*a;}
     cur.g.add(m);
   }
@@ -9600,8 +9622,8 @@ function worldRoofHip(x,z,w,d,h,rise,c,over=.3) {
   else{tri(B,C,R2);tri(B,R2,R1);tri(D,A,R1);tri(D,R1,R2);tri(A,B,R1);tri(C,D,R2);}
   add(A,C,B);add(A,D,C);
   const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.Float32BufferAttribute(P,3));
-  g.setAttribute("uv",new THREE.Float32BufferAttribute(new Array(P.length/3*2).fill(0),2));g.computeVertexNormals();
-  const m=new THREE.Mesh(g,fm(c));m.position.set(x,h,z);cur.g.add(m);return m;
+  g.setAttribute("uv",new THREE.Float32BufferAttribute(worldHipUV(P),2));g.computeVertexNormals();
+  const m=new THREE.Mesh(g,WTX?worldMat("roof",c):fm(c));m.position.set(x,h,z);cur.g.add(m);return m;
 }
 
 /** Banc bas, avec une emprise solide sans petits obstacles invisibles. */
@@ -9688,9 +9710,9 @@ function worldBarrier(x,z,along,angle) {
 /** Voirie partagée par la ville et ses maquettes : enrobé, trottoirs, bordures et marquages. */
 function worldTownBase(mini=false) {
   const E=mini?33:47,ZS=mini?35:47,road=0x4b4e51,paint=0xe7e4db,curb=0xd3cfc7;
-  bx(mini?66:96,.12,mini?70:96,0,-.12,0,0xb9b5ac);
-  for(const x of [-15,15]) bx(6,.016,ZS+34,x,.002,(ZS-34)/2,road);
-  for(const z of [-31,14]) bx(2*E,.02,6,0,.002,z,road);
+  wbx("paving",mini?66:96,.12,mini?70:96,0,-.12,0,0xb9b5ac);
+  for(const x of [-15,15]) wbx("asphalt",6,.016,ZS+34,x,.002,(ZS-34)/2,road);
+  for(const z of [-31,14]) wbx("asphalt",2*E,.02,6,0,.002,z,road);
   const vs=[[-27.8,10.8],[17.2,ZS]],hs=[[-E,-18],[-12,12],[18,E]];
   // Bordures interrompues aux carrefours : les trottoirs ne traversent jamais la chaussée.
   for(const x of [-15,15]) for(const k of [-1,1]) for(const [a,b] of vs) bx(.2,.1,b-a,x+k*3.1,0,(a+b)/2,curb);
@@ -9703,25 +9725,25 @@ function worldTownBase(mini=false) {
   for(const x of [-15,15]) for(const at of [-26.4,9.4,18.6]) zebra("v",at,x);
   for(const z of [-31,14]) for(const at of [-19.6,-10.4,10.4,19.6]) zebra("h",at,z);
   // Place pavée et arbres d'alignement.
-  bx(20,.03,13.5,0,0,25.25,0xcbc2b0);
+  wbx("cobble",20,.03,13.5,0,0,25.25,0xcbc2b0);
   for(const [x,z] of [[-8.6,19.6],[8.6,19.6],[-8.6,30.4],[8.6,30.4]]) { bx(1.3,.035,1.3,x,0,z,0x55554f); worldTree(x,z,.85,!mini); }
   // Jardin des tilleuls : pelouse, haies taillées, allées gravillonnées et deux entrées.
-  bx(10.8,.05,9,-25,0,-21.75,0x7d9163);
-  bx(1.6,.058,7.35,-24,0,-22.575,0xc9bb9c); bx(5.2,.058,1.6,-22.2,0,-22,0xc9bb9c);
+  wbx("grass",10.8,.05,9,-25,0,-21.75,0x7d9163);
+  wbx("gravel",1.6,.058,7.35,-24,0,-22.575,0xc9bb9c); wbx("gravel",5.2,.058,1.6,-22.2,0,-22,0xc9bb9c);
   const hedge=(x0,x1,z0,z1)=>bx(x1-x0,.95,z1-z0,(x0+x1)/2,0,(z0+z1)/2,0x56704a,{s:!mini});
   hedge(-30.4,-25.4,-26.25,-25.75); hedge(-22.6,-19.6,-26.25,-25.75); hedge(-30.4,-19.6,-17.75,-17.25);
   hedge(-30.4,-29.9,-25.75,-17.75); hedge(-20.1,-19.6,-25.75,-23.2); hedge(-20.1,-19.6,-20.8,-17.75);
   for(const [x,z] of [[-28.5,-24.3],[-21.4,-24.6],[-28.6,-19.4],[-21.2,-19.4]]) worldTree(x,z,1,!mini);
   // Petits parkings des deux côtés.
   for(const sx of [-1,1]) {
-    bx(10.4,.012,5.6,sx*26,.002,4.6,0x56595c);
+    wbx("asphalt",10.4,.012,5.6,sx*26,.002,4.6,0x56595c);
     for(let i=0;i<5;i++) bx(.1,.006,5,sx*(21+i*2.5),.014,4.6,paint);
     bx(10.1,.006,.1,sx*26,.014,2.1,paint);
   }
   // Cour du magasin : béton, murs enduits avec couvertine, portail piéton et portail coulissant.
-  bx(20,.03,9,0,0,-22.5,0xa9a6a0);
-  for(const x of [-10,10]) { bx(.25,2.4,9,x,0,-22.5,0xcfc6b3); bx(.4,.1,9.1,x,2.4,-22.5,0xe2dccd); }
-  for(const [a,b] of [[-10,-1.24],[1.24,2.0],[6.8,10]]) { bx(b-a,2.4,.25,(a+b)/2,0,-27,0xcfc6b3); bx(b-a,.1,.4,(a+b)/2,2.4,-27,0xe2dccd); }
+  wbx("concrete",20,.03,9,0,0,-22.5,0xa9a6a0);
+  for(const x of [-10,10]) { wbx("stucco",.25,2.4,9,x,0,-22.5,0xcfc6b3); bx(.4,.1,9.1,x,2.4,-22.5,0xe2dccd); }
+  for(const [a,b] of [[-10,-1.24],[1.24,2.0],[6.8,10]]) { wbx("stucco",b-a,2.4,.25,(a+b)/2,0,-27,0xcfc6b3); bx(b-a,.1,.4,(a+b)/2,2.4,-27,0xe2dccd); }
   for(const x of [-1.03,1.03,2.1,6.7]) bx(.42,2.62,.45,x,0,-27,0xd6cdb9);
   bx(4.4,2.15,.07,4.4,.05,-27,0x3d4042);
   for(let y=.4;y<2.2;y+=.45) bx(4.4,.05,.1,4.4,y,-27,0x34373a);
@@ -9732,7 +9754,7 @@ function worldTownBase(mini=false) {
 /** Bâtiments : volumes, toitures et détails de façade selon leur usage dans le jeu. */
 function worldBuilding(lot,mode="city") {
   const {x,z,w,d,h,color,id}=lot,mini=mode==="mini",f=worldFaces(x,z,w,d);
-  bx(w,h,d,x,0,z,color,{s:mode==="city"});
+  wbx("stucco",w,h,d,x,0,z,color,{s:mode==="city"});
   if(id==="shop"||id==="colis"||id==="poste") worldRoofFlat(x,z,w,d,h,id==="colis"?0xa9aca9:0xcfc6b5);
   else if(id==="passage") worldRoofGable(x,z,w,d,h,2.6,0xa4573d,color,true);
   else worldRoofHip(x,z,w,d,h,id==="archives"?2.4:2.2,id==="archives"?0x625f5a:0xa95c40);
@@ -9867,7 +9889,7 @@ function worldOutskirts(northOnly=false) {
   const house=(axis,front,n,u,ww,label)=>{
     const d=9,floors=2+Math.floor(R()*3),h=floors*3+.7+R()*.5,c=walls[Math.floor(R()*walls.length)];
     const cx=axis==="z"?u:front-n*d/2,cz=axis==="z"?front-n*d/2:u,w=axis==="z"?ww:d,dd=axis==="z"?d:ww;
-    bx(w,h,dd,cx,0,cz,c); bx(w+.06,.45,dd+.06,cx,0,cz,0x9a948a); bx(w+.24,.2,dd+.24,cx,h-.2,cz,0xe6e0d2);
+    wbx("stucco",w,h,dd,cx,0,cz,c); bx(w+.06,.45,dd+.06,cx,0,cz,0x9a948a); bx(w+.24,.2,dd+.24,cx,h-.2,cz,0xe6e0d2);
     const F=worldFaces(cx,cz,w,dd),face=axis==="z"?(n>0?F.s:F.n):(n>0?F.e:F.w),sh=R()<.55?shutters[Math.floor(R()*shutters.length)]:0;
     const levels=[];for(let i=1;i<floors;i++)levels.push(i*3+.9);
     worldWindows(face,u-ww/2,u+ww/2,levels,{w:1.05,h:1.5,step:2.5,shutter:sh||undefined,margin:sh?1.4:.9});
@@ -9902,7 +9924,7 @@ function worldOutskirts(northOnly=false) {
 /** La maquette emploie le même plan de bâtiments et les mêmes rues que la ville. */
 function worldMiniature(x,z,scale,stand=true) {
   const main=cur.g,previousSol=cur.sol,group=new THREE.Group();cur.g=group;cur.sol=[];
-  worldTownBase(true);mergeG(group);cur.g=main;cur.sol=previousSol;
+  const wasTex=WTX;WTX=false;worldTownBase(true);WTX=wasTex;mergeG(group);cur.g=main;cur.sol=previousSol;
   group.scale.setScalar(scale);group.position.set(x,stand?1.1:.055,z);
   group.children.forEach(m=>{m.userData.keep=1;});main.add(group);
   const leds=[],k=stand?1:3.2,y0=stand?1.1:.055;
@@ -9958,9 +9980,7 @@ function bWorldCity() {
   worldSign(["Maquette du quartier · éch. 1/22"],0,1.01,23.117,1.7,.12,Math.PI,"brass");
   s.mini=worldMiniature(0,25,.046,true);s.mini.group.traverse(m=>{if(m.isMesh)m.userData.worldOwner=board;});
   s.mini.leds.forEach(q=>{q.m.userData.worldOwner=board;q.stem.userData.worldOwner=board;});
-  s.g.add(new THREE.HemisphereLight(0xdde9f0,0x9b9278,.6));
-  const sun=new THREE.DirectionalLight(0xfff0dc,.3);sun.position.set(-6,12,8);s.g.add(sun);
-  fxSky(s,FXA.grass.sky);return s;
+  worldDaylight(s,52);worldLife(s);return s;
 }
 
 /** Cour de service : béton, murs enduits, portail sur la rue et bâtiments voisins au-dessus. */
@@ -9971,12 +9991,12 @@ function bWorldCour() {
     for(const [x,z] of [[-28.5,-24.3],[-21.4,-24.6],[-28.6,-19.4],[-21.2,-19.4]]) worldTree(x,z,1,false);
     worldOutskirts(true);
   });
-  bx(20,.14,11.2,0,-.14,0,0xa9a6a0);
+  wbx("concrete",20,.14,11.2,0,-.14,0,0xa9a6a0);
   for(const z of [-2.8,0,2.8]) bx(20,.004,.04,0,0,z,0x8f8c86);
   for(const x of [-5,5]) bx(.04,.004,11.2,x,0,0,0x8f8c86);
   bx(.5,.012,.5,0,0,0,0x3b3d3f);
   // Arrière du magasin : porte du personnel, applique, fenêtres dépolies et descentes d'eau.
-  bx(20.4,4.6,.3,0,0,5.75,0xd9d0bf); bx(20.4,.5,.06,0,0,5.58,0x9a948a); bx(20.7,.22,.55,0,4.6,5.75,0xe6e0d2);
+  wbx("stucco",20.4,4.6,.3,0,0,5.75,0xd9d0bf); bx(20.4,.5,.06,0,0,5.58,0x9a948a); bx(20.7,.22,.55,0,4.6,5.75,0xe6e0d2);
   worldDoor("Retour à l’arrière-boutique",0,5.43,"z",0x8c908d,()=>go("back",0,-7.6,Math.PI),{face:-1,wall:5.6,frame:0x6f7374,title:"ENTRÉE DU PERSONNEL"});
   bx(.3,.16,.22,0,2.95,5.49,0x3b3d3f); bx(.24,.03,.16,0,2.93,5.49,0xfff3d6);
   const rear={ax:"z",at:5.6,n:-1};
@@ -9984,8 +10004,8 @@ function bWorldCour() {
   for(const x of [-9.5,9.5]) bx(.12,4.6,.12,x,0,5.53,0x7b7f80);
   cbx(.9,.65,.35,7.2,2.6,5.42,0xd8d8d2,{b:.03}); bx(.5,.5,.02,7.05,2.67,5.235,0x5f6365);
   // Murs mitoyens et mur sur rue, avec portail piéton et portail coulissant.
-  for(const x of [-9.95,9.95]) { bx(.25,2.5,11.2,x,0,0,0xcfc6b3,{s:1}); bx(.4,.12,11.3,x,2.5,0,0xe2dccd); }
-  for(const [a,b] of [[-10,-1.24],[1.24,2.0],[6.8,10]]) { bx(b-a,2.5,.25,(a+b)/2,0,-5.62,0xcfc6b3,{s:1}); bx(b-a,.12,.4,(a+b)/2,2.5,-5.62,0xe2dccd); }
+  for(const x of [-9.95,9.95]) { wbx("stucco",.25,2.5,11.2,x,0,0,0xcfc6b3,{s:1}); bx(.4,.12,11.3,x,2.5,0,0xe2dccd); }
+  for(const [a,b] of [[-10,-1.24],[1.24,2.0],[6.8,10]]) { wbx("stucco",b-a,2.5,.25,(a+b)/2,0,-5.62,0xcfc6b3,{s:1}); bx(b-a,.12,.4,(a+b)/2,2.5,-5.62,0xe2dccd); }
   for(const x of [-1.03,1.03,2.1,6.7]) bx(.42,2.7,.45,x,0,-5.62,0xd6cdb9,{s:1});
   bx(4.4,2.2,.07,4.4,.05,-5.62,0x3d4042,{s:1});
   for(let y=.4;y<2.2;y+=.45) bx(4.4,.05,.1,4.4,y,-5.62,0x34373a);
@@ -10000,9 +10020,7 @@ function bWorldCour() {
   worldOwned(cyl(.17,.03,8.75,.95,2.75,0x3b3d3f),ash); cur.sol.push([8.59,8.91,2.59,2.91]);
   worldBin(-8.95,4.0,0x3f6b45,0x2f5236); worldBin(-8.95,2.9,0x55595b,0x404345);
   worldPallets(-8.7,-1.4,4);
-  s.g.add(new THREE.HemisphereLight(0xdde9f0,0x928269,.6));
-  const sun=new THREE.DirectionalLight(0xfff0dc,.3);sun.position.set(-6,12,8);s.g.add(sun);
-  fxSky(s,FXA.grass.sky);return s;
+  worldDaylight(s,34);return s;
 }
 
 /** Arrière-boutique traversante : couloir de service, réserve, sécurité, pause et vestiaire. */
@@ -10070,6 +10088,7 @@ function bWorldBack() {
   [-3.65,-2.75].forEach(x=>chair(x,7.7,0x5d6064));
   it(cbx(1.65,.9,.06,-3.6,1.18,8.75,0xb08657,{b:.015}),"Consignes du personnel",()=>panel("<h1>Avant l’ouverture</h1><p>Caisse et enseigne dans le magasin. Le carton se dépose sur la palette de la réserve, au fond à gauche du couloir. Léa prépare la vitrine, Karim les prix.</p><p>La cour donne sur la rue par le portail du fond. Pause, promenade en ville et maquette du quartier restent facultatives : seules les tâches comptent pour ouvrir.</p><button data-a='close'>Retour</button>"));
   worldSign([""],-3.6,1.63,8.714,1.6,.86,Math.PI,"paper",worldNoticePaint,"consignes");
+  worldBackDetails();
   return s;
 }
 
@@ -10154,9 +10173,10 @@ function worldSight(m,distance) {
 /** Informations de lieu, café et séquence bonus ; les anciennes séquences restent prioritaires. */
 function worldUpd(dt) {
   const w=worldState(),s=S.back;
+  worldLifeUpd(dt);
   if(CN==="back" && w.coffee===1) {w.coffeeTime+=dt;if(w.coffeeTime>=3){w.coffee=2;say("Le café est prêt. Tu peux prendre la tasse.");}}
   if(s&&s.coffeeFlow){s.coffeeFlow.visible=w.coffee===1;s.coffeeCup.visible=w.coffee<3;s.coffeeLiquid.visible=w.coffee===2;}
-  const names={back:"Arrière-boutique",cour:"Cour du magasin",ville:"Ville · "+Object.keys(w.seen).length+"/4 repères",maquette:"Maquette du quartier"};
+  const names={back:"Arrière-boutique",cour:"Cour du magasin",ville:"Ville · "+Object.keys(w.seen).length+"/4 repères"+(TOUCH?"":" · M : plan"),maquette:"Maquette du quartier"};
   const hud=$("worldloc");if(hud){hud.textContent=names[CN]||"";hud.hidden=!names[CN]||ui!=="play";}
   if(!T.cityCine)return false;
   const c=T.cityCine;c.t+=dt;const reduced=matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -10188,6 +10208,927 @@ function bWorld() {
   worldRefreshMarkers();
 }
 // <<< CONNEX WORLD
+
+// >>> CONNEX VIE — textures du quartier, ciel et soleil, passants, ambiance sonore et plan.
+// Ajouts d’atmosphère uniquement : tâches, dialogues, dix fins et fin bonus restent ceux d’origine.
+
+/** Textures procédurales du quartier (WORLD_TEX) et matériaux qui les partagent (WORLD_MAT). */
+const WORLD_TEX = {}, WORLD_MAT = {};
+/** Mètres réels couverts par une répétition de chaque texture : l’échelle reste cohérente d’un bâtiment à l’autre. */
+const WORLD_TEXM = { stucco: 3.2, roof: 2.4, asphalt: 4, paving: 2, cobble: 2, grass: 3, concrete: 3.2, gravel: 1.6 };
+/** Vrai tant que le décor reçoit ses textures ; coupé pendant la construction des maquettes, trop petites pour en profiter. */
+let WTX = true;
+/** Les ombres du soleil sont réservées aux ordinateurs ; le tactile garde les ombres de contact d’origine. */
+const WORLD_SHADOWS = !TOUCH;
+R.shadowMap.enabled = WORLD_SHADOWS;
+R.shadowMap.autoUpdate = false;
+R.shadowMap.type = THREE.PCFSoftShadowMap;
+
+/** Dessine f(X, Y) aux neuf positions voisines d’un point proche du bord : le motif se raccorde sans couture. */
+function worldWrap(n, x, y, r, f) {
+  for (const dx of [-n, 0, n]) for (const dy of [-n, 0, n]) {
+    const X = x + dx, Y = y + dy;
+    if (X > -r && X < n + r && Y > -r && Y < n + r) f(X, Y);
+  }
+}
+
+/** Taches douces claires ou sombres : ni un enduit, ni un béton, ni un enrobé ne sont parfaitement uniformes. */
+function worldBlots(c, n, R, count, rmin, rmax, amin, amax, dark = "50,42,32", light = "255,255,255") {
+  for (let i = 0; i < count; i++) {
+    const x = R() * n, y = R() * n, r = rmin + R() * (rmax - rmin), a = amin + R() * (amax - amin), col = R() < .55 ? dark : light;
+    worldWrap(n, x, y, r, (X, Y) => {
+      const g = c.createRadialGradient(X, Y, 0, X, Y, r);
+      g.addColorStop(0, "rgba(" + col + "," + a + ")");
+      g.addColorStop(1, "rgba(" + col + ",0)");
+      c.fillStyle = g;
+      c.fillRect(X - r, Y - r, 2 * r, 2 * r);
+    });
+  }
+}
+
+/** Grain fin : count points clairs ou sombres d’opacité comprise entre a0 et a1. */
+function worldGrain(c, n, R, count, a0, a1) {
+  for (let i = 0; i < count; i++) {
+    const dark = R() < .5, v = dark ? "45,40,32" : "255,255,250", s = R() < .3 ? 2 : 1;
+    c.fillStyle = "rgba(" + v + "," + (a0 + R() * (a1 - a0)) + ")";
+    c.fillRect(R() * n, R() * n, s, s);
+  }
+}
+
+/** Fissure fine : ligne brisée qui part de (x, y) et avance vers la droite. */
+function worldCrack(c, R, x, y, steps, a = .35) {
+  c.strokeStyle = "rgba(35,32,28," + a + ")";
+  c.lineWidth = 1;
+  c.beginPath();
+  c.moveTo(x, y);
+  for (let i = 0; i < steps; i++) { x += 6 + R() * 14; y += (R() - .5) * 16; c.lineTo(x, y); }
+  c.stroke();
+}
+
+/** Peintres des textures : chacun reçoit le contexte 2D, la taille et un générateur à graine fixe. */
+const WORLD_PAINT = {
+  /** Crépi clair irrégulier, à teinter par la couleur du matériau. */
+  stucco(c, n, R) {
+    c.fillStyle = "#f0eee9";
+    c.fillRect(0, 0, n, n);
+    worldBlots(c, n, R, 70, 16, 54, .03, .08);
+    worldGrain(c, n, R, 3400, .05, .2);
+  },
+  /** Tuiles plates en rangs décalés, ombrées sous le rang supérieur. */
+  roof(c, n, R) {
+    const rows = 8, cols = 8, th = n / rows, tw = n / cols;
+    c.fillStyle = "#5e5851";
+    c.fillRect(0, 0, n, n);
+    for (let r = 0; r < rows; r++) for (let q = 0; q < cols; q++) {
+      const x = q * tw + (r % 2 ? tw / 2 : 0), y = r * th, v = Math.round(190 + R() * 65);
+      for (const ox of [-n, 0]) {
+        const g = c.createLinearGradient(0, y, 0, y + th);
+        g.addColorStop(0, "rgb(" + (v - 80) + "," + (v - 82) + "," + (v - 86) + ")");
+        g.addColorStop(.32, "rgb(" + v + "," + (v - 3) + "," + (v - 8) + ")");
+        g.addColorStop(1, "rgb(" + (v - 16) + "," + (v - 18) + "," + (v - 24) + ")");
+        c.fillStyle = g;
+        c.fillRect(x + ox + 1, y + 1, tw - 2, th - 1);
+      }
+    }
+    worldBlots(c, n, R, 30, 10, 32, .04, .1, "30,50,20", "255,255,240");
+    worldGrain(c, n, R, 1800, .06, .16);
+  },
+  /** Enrobé : gravillons clairs et sombres, plaques plus ou moins usées et fissures fines. */
+  asphalt(c, n, R) {
+    c.fillStyle = "#b4b4b1";
+    c.fillRect(0, 0, n, n);
+    worldBlots(c, n, R, 46, 20, 60, .04, .1, "30,30,30", "230,230,225");
+    for (let i = 0; i < 6000; i++) {
+      const v = (90 + R() * 150) | 0;
+      c.fillStyle = "rgba(" + v + "," + v + "," + v + "," + (.3 + R() * .4) + ")";
+      c.fillRect(R() * n, R() * n, 1 + (R() < .3), 1);
+    }
+    worldCrack(c, R, R() * n * .5, R() * n, 8);
+    worldCrack(c, R, R() * n * .5, R() * n, 6);
+  },
+  /** Dalles de trottoir de 1 m sur 0,5 m, légèrement décalées d’un rang à l’autre, joints sombres. */
+  paving(c, n, R) {
+    c.fillStyle = "#8f8c84";
+    c.fillRect(0, 0, n, n);
+    const sw = n / 2, sh = n / 4;
+    for (let r = 0; r < 4; r++) for (let q = 0; q < 2; q++) {
+      const x = q * sw + (r % 2 ? sw / 2 : 0), y = r * sh, v = 222 + ((R() * 30) | 0);
+      for (const ox of [-n, 0]) {
+        c.fillStyle = "rgb(" + v + "," + (v - 2) + "," + (v - 9) + ")";
+        c.fillRect(x + ox + 2, y + 2, sw - 3, sh - 3);
+      }
+    }
+    worldBlots(c, n, R, 26, 12, 40, .03, .08);
+    worldGrain(c, n, R, 2600, .06, .18);
+  },
+  /** Pavés de place : petits rangs décalés aux teintes grises et beiges, joints sombres. */
+  cobble(c, n, R) {
+    c.fillStyle = "#5f5b52";
+    c.fillRect(0, 0, n, n);
+    const rows = 12, th = n / rows;
+    for (let r = 0; r < rows; r++) for (let q = 0; q < 8; q++) {
+      const x = q * 32 + (r % 2 ? 16 : 0), y = r * th, v = 175 + ((R() * 60) | 0), w = R() < .5 ? 0 : 6;
+      for (const ox of [-n, 0]) {
+        c.fillStyle = "rgb(" + (v + w) + "," + (v + (w ? 3 : 0)) + "," + (v - w) + ")";
+        c.fillRect(x + ox + 1.5, y + 1.5, 29, th - 3);
+      }
+    }
+    worldGrain(c, n, R, 2200, .05, .16);
+  },
+  /** Pelouse : brins courts de deux verts et plaques un peu plus sèches. */
+  grass(c, n, R) {
+    c.fillStyle = "#d8dcc6";
+    c.fillRect(0, 0, n, n);
+    worldBlots(c, n, R, 60, 14, 46, .05, .12, "60,90,30", "255,255,210");
+    for (let i = 0; i < 2600; i++) {
+      const x = R() * n, y = R() * n;
+      c.strokeStyle = R() < .5 ? "rgba(70,110,40,.35)" : "rgba(235,245,190,.4)";
+      c.beginPath();
+      c.moveTo(x, y);
+      c.lineTo(x + (R() - .5) * 2, y - 2 - R() * 3);
+      c.stroke();
+    }
+  },
+  /** Béton de cour : grain, taches d’humidité et une fissure. */
+  concrete(c, n, R) {
+    c.fillStyle = "#e0dfda";
+    c.fillRect(0, 0, n, n);
+    worldBlots(c, n, R, 60, 18, 64, .04, .1, "55,52,46", "255,255,255");
+    worldGrain(c, n, R, 4200, .06, .2);
+    worldCrack(c, R, R() * n * .4, R() * n, 7);
+  },
+  /** Gravillon des allées du jardin. */
+  gravel(c, n, R) {
+    c.fillStyle = "#dcd5c4";
+    c.fillRect(0, 0, n, n);
+    for (let i = 0; i < 3200; i++) {
+      const v = (150 + R() * 100) | 0;
+      c.fillStyle = "rgba(" + v + "," + (v - 8) + "," + (v - 22) + "," + (.35 + R() * .4) + ")";
+      c.fillRect(R() * n, R() * n, 2, 2);
+    }
+    worldBlots(c, n, R, 30, 8, 22, .05, .12);
+  }
+};
+
+/** Texture procédurale (kind), peinte une seule fois avec une graine fixe : le décor est identique à chaque tentative. */
+function worldTex(kind) {
+  if (WORLD_TEX[kind]) return WORLD_TEX[kind];
+  let seed = 11, sum = 0;
+  for (const ch of kind) seed = (seed * 31 + ch.charCodeAt(0)) | 0;
+  const t = tex((c, n) => {
+    WORLD_PAINT[kind](c, n, lpRng(seed));
+    const d = c.getImageData(0, 0, n, n).data;
+    for (let i = 0; i < d.length; i += 64) sum += (d[i] + d[i + 1] + d[i + 2]) / 765;
+    sum /= d.length / 64;
+  }, 256, 1, 1);
+  t.avg = sum;
+  return (WORLD_TEX[kind] = t);
+}
+
+/** Matériau texturé partagé : la couleur c teinte la texture, rééquilibrée pour garder la luminosité du décor d’origine. */
+function worldMat(kind, c) {
+  const key = kind + "/" + c;
+  if (WORLD_MAT[key]) return WORLD_MAT[key];
+  const t = worldTex(kind), m = new THREE.MeshPhongMaterial({ color: c, map: t, shininess: 7, specular: 0x0e0e0e });
+  m.color.multiplyScalar(Math.min(1.8, 1 / Math.max(.3, t.avg)));
+  m.userData.merge = 1;
+  m.userData.worldTex = 1;
+  m.polygonOffset = true;
+  m.polygonOffsetFactor = 1;
+  m.polygonOffsetUnits = 1;
+  return (WORLD_MAT[key] = m);
+}
+
+/**
+ * Pavé texturé, même signature que bx() avec la texture kind en tête. Les coordonnées de texture
+ * suivent le plan du monde (sol, mur est-ouest ou nord-sud) à l’échelle réelle, si bien que deux
+ * pavés voisins se raccordent. Sans textures (maquettes), c’est exactement bx().
+ */
+function wbx(kind, w, h, d, x, y, z, c, o) {
+  if (!WTX) return bx(w, h, d, x, y, z, c, o);
+  const g = new THREE.BoxGeometry(w, h, d), P = g.attributes.position, N = g.attributes.normal, U = g.attributes.uv,
+    s = WORLD_TEXM[kind] || 3, cy = y + h / 2;
+  for (let i = 0; i < P.count; i++) {
+    const X = P.getX(i) + x, Y = P.getY(i) + cy, Z = P.getZ(i) + z, ax = Math.abs(N.getX(i)), ay = Math.abs(N.getY(i)), az = Math.abs(N.getZ(i));
+    if (ay >= ax && ay >= az) U.setXY(i, X / s, Z / s);
+    else if (ax >= az) U.setXY(i, Z / s, Y / s);
+    else U.setXY(i, X / s, Y / s);
+  }
+  const m = new THREE.Mesh(g, worldMat(kind, c));
+  m.position.set(x, cy, z);
+  cur.g.add(m);
+  if (o && o.s) cur.sol.push([x - w / 2, x + w / 2, z - d / 2, z + d / 2]);
+  return m;
+}
+
+/** Plaque de toit : coordonnées de tuiles dont les rangs suivent le faîtage (swap : faîtage le long de z). */
+function worldRoofSlab(geo, c, swap) {
+  const P = geo.attributes.position, N = geo.attributes.normal, U = geo.attributes.uv, s = WORLD_TEXM.roof;
+  for (let i = 0; i < P.count; i++) {
+    const x = P.getX(i), y = P.getY(i), z = P.getZ(i);
+    if (Math.abs(N.getY(i)) > .5) U.setXY(i, (swap ? z : x) / s, (swap ? x : z) / s);
+    else U.setXY(i, (x + z) / s, y / s);
+  }
+  return new THREE.Mesh(geo, WTX ? worldMat("roof", c) : fm(c));
+}
+
+/** Coordonnées de tuiles d’un toit à quatre pans : sur chaque facette, les rangs courent le long de l’avant-toit. */
+function worldHipUV(P) {
+  const uv = [], s = WORLD_TEXM.roof;
+  for (let i = 0; i < P.length; i += 9) {
+    const a = [P[i], P[i + 1], P[i + 2]], b = [P[i + 3], P[i + 4], P[i + 5]], d = [P[i + 6], P[i + 7], P[i + 8]],
+      ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = d[0] - a[0], vy = d[1] - a[1], vz = d[2] - a[2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const l = Math.hypot(nx, ny, nz) || 1;
+    nx /= l; ny /= l; nz /= l;
+    let hx = -nz, hz = nx, hl = Math.hypot(hx, hz);
+    if (hl < .05) { hx = 1; hz = 0; hl = 1; }
+    hx /= hl; hz /= hl;
+    const sx = ny * hz, sy = nz * hx - nx * hz, sz = -ny * hx;
+    for (const q of [a, b, d]) uv.push((q[0] * hx + q[2] * hz) / s, (q[0] * sx + q[1] * sy + q[2] * sz) / s);
+  }
+  return uv;
+}
+
+/** Direction du soleil (vers la lumière) : sud-ouest, assez bas pour des ombres longues et lisibles. */
+const WORLD_SUN = new THREE.Vector3(-.45, .56, .69).normalize();
+/** Dégradé du ciel de jour : brume claire à l’horizon, bleu plus franc vers le zénith. */
+const WORLD_SKY = [[-1, 0xcfd9db], [-.1, 0xe6edee], [0, 0xf7f0e0], [.1, 0xd5e6f2], [.4, 0x9cc3e8], [1, 0x6fa5dd]];
+/** Nuages du quartier : teintes cuites dans les sommets, dessinés avant le décor et jamais devant lui. */
+const WCLOUD = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false, depthTest: false, depthWrite: false });
+
+/** Texture du soleil : noyau blanc très lumineux dans un large halo chaud. */
+function worldSunTex() {
+  return worldSunTex.t || (worldSunTex.t = tex((c, n) => {
+    const g = c.createRadialGradient(n / 2, n / 2, 0, n / 2, n / 2, n / 2);
+    g.addColorStop(0, "rgba(255,255,248,1)");
+    g.addColorStop(.1, "rgba(255,252,236,1)");
+    g.addColorStop(.16, "rgba(255,240,200,.55)");
+    g.addColorStop(.4, "rgba(255,226,170,.16)");
+    g.addColorStop(1, "rgba(255,220,160,0)");
+    c.fillStyle = g;
+    c.fillRect(0, 0, n, n);
+  }, 128, 1, 1));
+}
+
+/** Nuage facetté : amas de bouffées aplaties fondues dans un seul maillage (blanc dessus, gris-bleu dessous). */
+function worldCloudGeo(R, size) {
+  const pos = [], col = [], n = 4 + Math.floor(R() * 3);
+  for (let i = 0; i < n; i++) {
+    const rad = size * (.5 + R() * .45), ox = (i - n / 2) * size * .7 + (R() - .5) * size * .3,
+      oy = (R() - .5) * size * .18, oz = (R() - .5) * size * .5,
+      g = new THREE.IcosahedronGeometry(rad, 1).toNonIndexed();
+    g.scale(1, .5, 1);
+    g.computeVertexNormals();
+    const P = g.attributes.position, N = g.attributes.normal;
+    for (let k = 0; k < P.count; k++) {
+      const t = Math.max(0, Math.min(1, N.getY(k) * .6 + .55));
+      pos.push(P.getX(k) + ox, P.getY(k) + oy, P.getZ(k) + oz);
+      col.push(.72 + .28 * t, .78 + .22 * t, .9 + .1 * t);
+    }
+    g.dispose();
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  return geo;
+}
+
+/**
+ * Soleil et nuages d’une salle extérieure r. Le groupe suit la caméra (fxUpd) comme le dôme du
+ * ciel ; les nuages dérivent lentement. Rien de tout cela ne gêne le décor : tout est dessiné
+ * avant lui, sans écrire la profondeur.
+ */
+function worldSky(r) {
+  const g = new THREE.Group(), clouds = new THREE.Group(), R = lpRng(311);
+  const sun = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: worldSunTex(), color: 0xfff4dc, blending: THREE.AdditiveBlending, transparent: false,
+    depthTest: false, depthWrite: false, fog: false
+  }));
+  sun.scale.setScalar(30);
+  sun.position.copy(WORLD_SUN).multiplyScalar(48);
+  sun.renderOrder = -17;
+  g.add(sun);
+  for (let i = 0, made = 0; i < 40 && made < 11; i++) {
+    const a = R() * Math.PI * 2, e = (9 + R() * 36) * Math.PI / 180, D = 44,
+      dir = new THREE.Vector3(Math.sin(a) * Math.cos(e), Math.sin(e), Math.cos(a) * Math.cos(e));
+    if (dir.angleTo(WORLD_SUN) < .3) continue;
+    const m = new THREE.Mesh(worldCloudGeo(R, 2.6 + R() * 2.8), WCLOUD);
+    m.position.copy(dir).multiplyScalar(D);
+    m.rotation.y = R() * 6.28;
+    m.renderOrder = -19;
+    m.frustumCulled = false;
+    m.userData.keep = 1;
+    clouds.add(m);
+    made++;
+  }
+  g.add(clouds);
+  r.g.add(g);
+  r.skyG = g;
+  r.clouds = clouds;
+}
+
+/**
+ * Lumière du jour d’une salle extérieure r : ciel clair, soleil chaud et, sur ordinateur, ombres
+ * projetées sur tout le décor fixe dans un rayon de extent mètres. La carte d’ombres ne se calcule
+ * qu’une fois (worldLifeUpd), le soleil et le décor fixe ne bougeant pas.
+ */
+function worldDaylight(r, extent) {
+  r.g.add(new THREE.HemisphereLight(0xd6e6f2, 0x9c9378, WORLD_SHADOWS ? .56 : .62));
+  const sun = new THREE.DirectionalLight(0xfff0d6, WORLD_SHADOWS ? .6 : .5);
+  sun.position.copy(WORLD_SUN).multiplyScalar(90);
+  r.g.add(sun, sun.target);
+  if (WORLD_SHADOWS) {
+    const c = sun.shadow.camera;
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.bias = -.0005;
+    sun.shadow.normalBias = .04;
+    c.left = c.bottom = -extent;
+    c.right = c.top = extent;
+    c.near = 10;
+    c.far = 190;
+    r.sun = sun;
+  }
+  fxSky(r, WORLD_SKY);
+  worldSky(r);
+}
+
+/**
+ * Règle l’ordre de dessin et les ombres du décor fixe de la salle r (après la fusion des maillages) : les
+ * surfaces texturées passent en premier pour que fenêtres, volets et marquages posés dessus l’emportent
+ * sans scintiller, puis, sur ordinateur, ombres portées et reçues.
+ */
+function worldShade(r) {
+  r.g.traverse(o => {
+    const m = o.material;
+    if (!o.isMesh || !m || Array.isArray(m)) return;
+    if (m.userData.worldTex) o.renderOrder = -5;
+    if (!r.sun || m.transparent || m.depthWrite === false) return;
+    o.receiveShadow = true;
+    o.castShadow = !o.userData.worldSign && m.type !== "MeshBasicMaterial";
+  });
+}
+
+/** Géométries partagées des passants et des oiseaux, créées une seule fois (pivot placé à l’articulation). */
+const WPG = {};
+/** Renvoie la géométrie k, construite par f() au premier appel. */
+const wpg = (k, f) => WPG[k] || (WPG[k] = f());
+/** Couleurs possibles des passants : hauts, bas, peaux et cheveux. */
+const WPAL = {
+  top: [0xa1473a, 0x4d6b55, 0x6b5a6a, 0xc09a52, 0x3f4f66, 0xd8d2c2, 0x7a6a52, 0x8d3d52, 0xb9b09a],
+  leg: [0x2f3a4f, 0x3b3d3f, 0x6e5f4a, 0x4b3f35, 0x5b6b7a, 0x2c2c33],
+  skin: [0xe8bf9f, 0xc98f6a, 0x8d5a3b, 0xf1d0b5, 0x6a4129],
+  hair: [0x2b1d14, 0x4b3020, 0x8a6a3c, 0xc9b07a, 0x777777, 0x151515]
+};
+
+/**
+ * Passant facetté d’environ 1,7 m, tourné vers +z : jambes et bras articulés, tête, cheveux, yeux,
+ * parfois sac, jupe ou cheveux longs. o.R est un générateur à graine fixe ; o.sit l’assoit (hanches à
+ * 50 cm). Renvoie le groupe et ses membres : worldWalkUpd les balance. Aucun maillage n’est un obstacle
+ * de visée (worldSign) ni figé par fin1 (live).
+ */
+function worldPerson(o) {
+  const R = o.R, pick = a => a[Math.floor(R() * a.length)], g = new THREE.Group(),
+    top = pick(WPAL.top), leg = pick(WPAL.leg), skin = pick(WPAL.skin), hair = pick(WPAL.hair),
+    part = (geo, c, x, y, z) => {
+      const m = new THREE.Mesh(geo, fm(c));
+      m.position.set(x, y, z);
+      m.userData.live = m.userData.worldSign = m.userData.keep = 1;
+      g.add(m);
+      return m;
+    }, hip = o.sit ? .5 : .84, p = { g, sit: !!o.sit };
+  if (o.sit) {
+    for (const k of [-1, 1]) {
+      part(wpg("thigh", () => new THREE.BoxGeometry(.15, .44, .17).translate(0, -.22, 0)), leg, k * .09, hip, 0).rotation.x = -Math.PI / 2;
+      part(wpg("shin", () => new THREE.BoxGeometry(.14, .58, .15).translate(0, -.29, 0)), leg, k * .09, hip, .43);
+    }
+  } else {
+    const lg = wpg("leg", () => new THREE.BoxGeometry(.15, .84, .17).translate(0, -.42, 0));
+    p.legL = part(lg, leg, -.09, hip, 0);
+    p.legR = part(lg, leg, .09, hip, 0);
+  }
+  part(wpg("torso", () => new THREE.BoxGeometry(.42, .62, .24)), top, 0, hip + .31, 0);
+  if (o.skirt || (!o.sit && R() < .22)) part(wpg("skirt", () => new THREE.BoxGeometry(.45, .3, .27).translate(0, -.15, 0)), pick(WPAL.top), 0, hip + .06, 0);
+  const ag = wpg("arm", () => new THREE.BoxGeometry(.1, .58, .12).translate(0, -.27, 0));
+  p.armL = part(ag, top, -.27, hip + .56, 0);
+  p.armR = part(ag, top, .27, hip + .56, 0);
+  if (o.sit) { p.armL.rotation.x = p.armR.rotation.x = -.9; }
+  part(wpg("head", () => new THREE.IcosahedronGeometry(.115, 1)), skin, 0, hip + .76, 0);
+  const hr = part(wpg("hair", () => new THREE.IcosahedronGeometry(.125, 1).scale(1, .75, 1.05)), hair, 0, hip + .81, -.012);
+  hr.rotation.x = -.15;
+  if (R() < .4) part(wpg("long", () => new THREE.BoxGeometry(.2, .3, .08)), hair, 0, hip + .64, -.1);
+  for (const k of [-1, 1]) part(wpg("eye", () => new THREE.BoxGeometry(.02, .025, .012)), 0x1c1a18, k * .04, hip + .78, .112);
+  if (R() < .35) part(wpg("bag", () => new THREE.BoxGeometry(.2, .26, .1)), pick([0x3b2b1f, 0x6b2f2a, 0x2f3a4f, 0xb08657]), .31, hip + .02, 0);
+  else if (R() < .22) part(wpg("pack", () => new THREE.BoxGeometry(.3, .38, .14)), pick([0x3b3d3f, 0x6b2f2a, 0x4d6b55]), 0, hip + .36, -.2);
+  return p;
+}
+
+/**
+ * Pigeon facetté (30 cm) : corps, tête, reflet du cou, bec, queue, deux ailes articulées et pattes.
+ * Renvoie le groupe et les pièces que worldBirdUpd anime. Posé en x/z sur le sol.
+ */
+function worldPigeon(x, z) {
+  const g = new THREE.Group(), part = (geo, c, px, py, pz) => {
+    const m = new THREE.Mesh(geo, fm(c));
+    m.position.set(px, py, pz);
+    m.userData.live = m.userData.worldSign = m.userData.keep = 1;
+    g.add(m);
+    return m;
+  }, b = part(wpg("pbody", () => new THREE.IcosahedronGeometry(.1, 1).scale(1, .85, 1.5)), 0x8d9096, 0, .14, 0);
+  const p = { g, body: b };
+  p.head = part(wpg("phead", () => new THREE.IcosahedronGeometry(.055, 1)), 0x6c7078, 0, .22, .12);
+  part(wpg("pneck", () => new THREE.IcosahedronGeometry(.048, 1)), 0x6d8b7c, 0, .17, .09);
+  const beak = new THREE.Mesh(wpg("pbeak", () => new THREE.BoxGeometry(.02, .02, .05)), fm(0xd8b27c));
+  beak.position.set(0, -.01, .06);
+  beak.userData.live = beak.userData.worldSign = beak.userData.keep = 1;
+  p.head.add(beak);
+  part(wpg("ptail", () => new THREE.BoxGeometry(.08, .02, .14)), 0x5c5f66, 0, .12, -.19).rotation.x = .25;
+  const wg = wpg("pwing", () => new THREE.BoxGeometry(.2, .02, .17).translate(.1, 0, 0));
+  p.wingL = part(wg, 0x7b7e85, .07, .2, 0);
+  p.wingR = part(wg, 0x7b7e85, -.07, .2, 0);
+  p.wingR.scale.x = -1;
+  p.feet = [-1, 1].map(k => part(wpg("pfoot", () => new THREE.BoxGeometry(.02, .07, .04)), 0xb86a5a, k * .035, .035, .01));
+  g.position.set(x, 0, z);
+  return p;
+}
+
+/** Oiseau lointain en vol : deux triangles en V dont les pointes d’ailes battent. Renvoie maillage et sommets. */
+function worldSkyBird() {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute([0, 0, -.35, -.7, .06, .2, 0, 0, .15, 0, 0, -.35, 0, 0, .15, .7, .06, .2], 3));
+  const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x2a2b2e, side: THREE.DoubleSide, fog: false }));
+  m.frustumCulled = false;
+  m.userData.live = m.userData.worldSign = m.userData.keep = 1;
+  return m;
+}
+
+/**
+ * Peuple le quartier de la salle s : passants sur les trottoirs et la place, deux personnes
+ * assises (banc du jardin, terrasse du café), pigeons de la place et quelques oiseaux dans le
+ * ciel. Tout est décor vivant : aucun obstacle de visée, aucune tâche, aucune condition de fin.
+ * Moins de monde sur tactile. Les trajets sont des listes de points, parcourus aller-retour ou en boucle.
+ */
+function worldLife(s) {
+  const walk = [], birds = [], sky = [], N = TOUCH ? 5 : 8,
+    routes = [
+      { path: [[-18.9, -24.6], [-18.9, 8.8]], v: 1.15, at: .35 },
+      { path: [[-18.5, 8.8], [-18.5, -24.6]], v: .95, at: .7, rev: 1 },
+      { path: [[18.9, -24], [18.9, 9]], v: 1.05, at: .5 },
+      { path: [[-7.4, 20], [7.4, 20], [7.4, 30.4], [-7.4, 30.4]], v: .9, at: 0, loop: 1 },
+      { path: [[7.0, 30.8], [-7.0, 30.8], [-7.0, 19.7], [7.0, 19.7]], v: 1.0, at: .5, loop: 1 },
+      { path: [[-11, 8.7], [11, 8.7]], v: 1.1, at: .2 },
+      { path: [[-10.4, 9], [-10.4, 19.4]], v: 1.2, at: .8 },
+      { path: [[10.4, 19.4], [10.4, 9]], v: 1.0, at: .3 }
+    ].slice(0, N);
+  routes.forEach((q, k) => {
+    const R = lpRng(900 + k * 17), p = worldPerson({ R }), n = q.path.length;
+    let seg = Math.min(n - 2, Math.floor(q.at * (n - 1))), a = q.path[seg], b = q.path[seg + 1], f = q.at * (n - 1) - seg;
+    if (q.loop) { seg = Math.floor(q.at * n) % n; a = q.path[seg]; b = q.path[(seg + 1) % n]; f = .3; }
+    const x = a[0] + (b[0] - a[0]) * f, z = a[1] + (b[1] - a[1]) * f,
+      w = { p, path: q.path, loop: !!q.loop, i: q.loop ? (seg + 1) % n : seg + 1, dir: 1, x, z, v: q.v, ph: R() * 6, pause: 0, hold: 0, R };
+    p.g.position.set(x, 0, z);
+    p.g.rotation.y = Math.atan2(b[0] - a[0], b[1] - a[1]);
+    s.g.add(p.g);
+    walk.push(w);
+  });
+  // Assis : banc du jardin des tilleuls et chaise nord de la terrasse du café.
+  for (const [x, z, face] of [[-24.15, -18.28, Math.PI], [-18.55, 24.62, 0]].slice(0, TOUCH ? 1 : 2)) {
+    const p = worldPerson({ R: lpRng(990 + Math.round(x)), sit: 1 });
+    p.g.position.set(x, .09, z);
+    p.g.rotation.y = face;
+    s.g.add(p.g);
+  }
+  // Pigeons de la place : ils s’envolent quand le joueur approche.
+  const spots = [[-7.2, 20.6], [6.8, 21], [-7.4, 30.2], [7, 30.6], [0, 31.2], [-2.6, 19.8], [3.4, 19.7], [-9.2, 25.5], [9.2, 25.4]];
+  for (let i = 0; i < (TOUCH ? 4 : 7); i++) {
+    const [x, z] = spots[i % spots.length], R = lpRng(500 + i * 13), p = worldPigeon(x + (R() - .5) * 1.2, z + (R() - .5) * 1.2);
+    Object.assign(p, { x: p.g.position.x, z: p.g.position.z, st: "idle", t: 0, pk: R() * 3, pd: 0, tx: p.g.position.x, tz: p.g.position.z, hd: R() * 6, R, spots });
+    s.g.add(p.g);
+    birds.push(p);
+  }
+  for (let i = 0; i < (TOUCH ? 2 : 4); i++) {
+    const m = worldSkyBird();
+    m.scale.setScalar(1.3);
+    s.g.add(m);
+    sky.push({ m, a: i * 1.7, r: 16 + i * 5, h: 24 + (i % 3) * 4, w: .32 - i * .03, ph: i });
+  }
+  s.walk = walk;
+  s.birds = birds;
+  s.skyBirds = sky;
+}
+
+/** Vrai si un passant de la ville occupe le point x/z (le joueur le contourne comme un meuble). */
+function worldWalkerHit(x, z) {
+  const W = S.ville && S.ville.walk;
+  return !!W && W.some(w => (x - w.x) ** 2 + (z - w.z) ** 2 < .3);
+}
+
+/** Pose debout ou en marche d’un passant : t = phase du pas, a = amplitude (0 à l’arrêt). */
+function worldPose(p, t, a) {
+  if (!p.legL) return;
+  const s = Math.sin(t) * .62 * a;
+  p.legL.rotation.x = s;
+  p.legR.rotation.x = -s;
+  p.armL.rotation.x = -s * .8;
+  p.armR.rotation.x = s * .8;
+  p.g.position.y = Math.abs(Math.sin(t)) * .022 * a;
+}
+
+/**
+ * Avance les passants de dt secondes. Chacun suit son trajet, s’arrête parfois quelques secondes,
+ * attend si le joueur est devant lui à moins de 1,6 m et fait demi-tour s’il reste bloqué plus de 5 s.
+ */
+function worldWalkUpd(dt) {
+  const L = S.ville && S.ville.walk;
+  if (!L || !dt) return;
+  for (const w of L) {
+    const n = w.path.length;
+    let moving = 0;
+    if (w.pause > 0) w.pause -= dt;
+    else {
+      const [tx, tz] = w.path[w.i], dx = tx - w.x, dz = tz - w.z, d = Math.hypot(dx, dz), ex = px - w.x, ez = pz - w.z;
+      if (ex * ex + ez * ez < 2.6 && ex * dx + ez * dz > 0) {
+        w.hold += dt;
+        if (w.hold > 5) {
+          w.hold = 0;
+          if (w.loop) w.path.reverse(), w.i = n - 1 - w.i;
+          else w.dir = -w.dir, w.i = Math.max(0, Math.min(n - 1, w.i + 2 * w.dir));
+        }
+      } else {
+        w.hold = 0;
+        if (d < .14) {
+          if (w.loop) w.i = (w.i + 1) % n;
+          else { w.i += w.dir; if (w.i >= n || w.i < 0) { w.dir = -w.dir; w.i += 2 * w.dir; } }
+          if (w.R() < .3) w.pause = 2 + w.R() * 4;
+        } else {
+          const st = Math.min(d, w.v * dt);
+          w.x += dx / d * st;
+          w.z += dz / d * st;
+          const a = Math.atan2(dx, dz) - w.p.g.rotation.y;
+          w.p.g.rotation.y += Math.atan2(Math.sin(a), Math.cos(a)) * Math.min(1, dt * 7);
+          w.ph += dt * w.v * 5.4;
+          moving = 1;
+        }
+      }
+    }
+    w.p.g.position.x = w.x;
+    w.p.g.position.z = w.z;
+    w.am = (w.am || 0) + ((moving ? 1 : 0) - (w.am || 0)) * Math.min(1, dt * 8);
+    worldPose(w.p, w.ph, w.am);
+  }
+}
+
+/**
+ * Anime pigeons et oiseaux du ciel à l’instant t (dt depuis la dernière image). Un pigeon picore et
+ * trottine ; si le joueur approche à moins de 3 m, il s’envole en arc vers un coin éloigné de la place.
+ */
+function worldBirdUpd(dt, t) {
+  const B = S.ville && S.ville.birds;
+  if (B && dt) for (const b of B) {
+    const g = b.g, near = (px - b.x) ** 2 + (pz - b.z) ** 2 < 9;
+    if (b.st === "idle") {
+      b.pk -= dt;
+      if (b.pk <= 0) { b.pk = .8 + b.R() * 2.4; b.pd = .45; if (b.R() < .4) { b.tx = b.x + (b.R() - .5) * 1.6; b.tz = b.z + (b.R() - .5) * 1.6; } }
+      if (b.pd > 0) b.pd -= dt;
+      const dx = b.tx - b.x, dz = b.tz - b.z, d = Math.hypot(dx, dz);
+      if (d > .05) { const s = Math.min(d, .35 * dt); b.x += dx / d * s; b.z += dz / d * s; b.hd = Math.atan2(dx, dz); }
+      g.rotation.y += Math.atan2(Math.sin(b.hd - g.rotation.y), Math.cos(b.hd - g.rotation.y)) * Math.min(1, dt * 8);
+      b.head.position.y = .22 - (b.pd > 0 ? Math.sin((1 - b.pd / .45) * Math.PI) * .08 : 0);
+      b.head.position.z = .12 + (b.pd > 0 ? Math.sin((1 - b.pd / .45) * Math.PI) * .05 : 0);
+      b.wingL.rotation.z = b.wingR.rotation.z = -.15;
+      b.feet.forEach(f => f.visible = true);
+      g.position.set(b.x, 0, b.z);
+      if (near) {
+        let best = null, far = 0;
+        for (let k = 0; k < 4; k++) {
+          const q = b.spots[Math.floor(b.R() * b.spots.length)], d2 = (q[0] - px) ** 2 + (q[1] - pz) ** 2;
+          if (d2 > far) { far = d2; best = q; }
+        }
+        b.fx = b.x; b.fz = b.z; b.tx = best[0] + (b.R() - .5) * 1.4; b.tz = best[1] + (b.R() - .5) * 1.4;
+        b.hd = Math.atan2(b.tx - b.fx, b.tz - b.fz);
+        b.T = Math.hypot(b.tx - b.fx, b.tz - b.fz) / 5 + .7;
+        b.t = 0;
+        b.st = "fly";
+        b.feet.forEach(f => f.visible = false);
+        b.head.position.set(0, .22, .12);
+      }
+    } else {
+      b.t += dt;
+      const u = Math.min(1, b.t / b.T);
+      b.x = b.fx + (b.tx - b.fx) * u;
+      b.z = b.fz + (b.tz - b.fz) * u;
+      g.position.set(b.x, Math.sin(u * Math.PI) * 2.3 + .05, b.z);
+      g.rotation.y = b.hd;
+      g.rotation.x = -.35 * Math.cos(u * Math.PI);
+      const f = Math.sin(b.t * 38) * .95;
+      b.wingL.rotation.z = f;
+      b.wingR.rotation.z = -f;
+      if (u >= 1) { b.st = "idle"; b.pk = 1.5; g.rotation.x = 0; }
+    }
+  }
+  const K = S.ville && S.ville.skyBirds;
+  if (K) for (const k of K) {
+    const a = k.a + t * k.w, x = Math.sin(a) * k.r, z = 22 + Math.cos(a) * k.r, P = k.m.geometry.attributes.position, f = Math.sin(t * 6 + k.ph) * .16;
+    k.m.position.set(x, k.h + Math.sin(t * .5 + k.ph) * 1.5, z);
+    k.m.rotation.y = a + Math.PI;
+    P.setY(1, .06 + f);
+    P.setY(5, .06 + f);
+    P.needsUpdate = true;
+  }
+}
+
+/**
+ * Ambiance sonore par salle : f = fréquence du filtre du vent (Hz), g = volume du souffle, hum =
+ * volume du bourdonnement des néons (100 Hz), mus = part conservée de la musique, birds/cars =
+ * présence d’oiseaux et de voitures lointaines. Les autres salles gardent leur seule musique.
+ */
+const AMBR = {
+  ville: { f: 520, g: .07, hum: 0, mus: .5, birds: 1, cars: 1 },
+  cour: { f: 430, g: .055, hum: 0, mus: .62, birds: 1, cars: 1 },
+  back: { f: 260, g: .016, hum: .028, mus: .85, birds: 0, cars: 0 },
+  maquette: { f: 300, g: .012, hum: .01, mus: .9, birds: 0, cars: 0 }
+};
+/** Nœuds de l’ambiance (souffle, filtre, gains, bourdonnement), prochaines échéances et part de musique appliquée. */
+let AMBG, AMBF, AMBH, AMBHG, ambBirdAt = 0, ambCarAt = 0, ambMus = 1;
+
+/** Crée le souffle bouclé (bruit rose lent) et le bourdonnement des néons ; appelée une fois par initA. */
+function ambInit() {
+  const n = AC.sampleRate * 4, b = AC.createBuffer(1, n, AC.sampleRate), d = b.getChannelData(0);
+  let l = 0;
+  for (let i = 0; i < n; i++) { l += (Math.random() * 2 - 1 - l) * .09; d[i] = l * 3.2; }
+  for (let i = 0; i < 2400; i++) d[n - 1 - i] = d[n - 1 - i] * (i / 2400) + d[i] * (1 - i / 2400);
+  const s = AC.createBufferSource();
+  s.buffer = b;
+  s.loop = true;
+  AMBF = AC.createBiquadFilter();
+  AMBF.type = "lowpass";
+  AMBF.frequency.value = 400;
+  AMBG = AC.createGain();
+  AMBG.gain.value = 0;
+  s.connect(AMBF);
+  AMBF.connect(AMBG);
+  AMBG.connect(SB);
+  s.start();
+  AMBH = AC.createOscillator();
+  AMBH.type = "triangle";
+  AMBH.frequency.value = 100;
+  AMBHG = AC.createGain();
+  AMBHG.gain.value = 0;
+  AMBH.connect(AMBHG);
+  AMBHG.connect(SB);
+  AMBH.start();
+}
+
+/** Courte phrase d’oiseau : deux à cinq notes aiguës qui montent, jouées à l’instant audio t. */
+function ambBird(t) {
+  const n = 2 + Math.floor(Math.random() * 4), f0 = 2300 + Math.random() * 1700;
+  for (let i = 0; i < n; i++) {
+    const o = AC.createOscillator(), g = AC.createGain(), s = t + i * .11;
+    o.type = "sine";
+    o.frequency.setValueAtTime(f0 * (1 + .1 * (i % 2)), s);
+    o.frequency.exponentialRampToValueAtTime(f0 * (1.25 + .1 * (i % 3)), s + .07);
+    g.gain.setValueAtTime(.0001, s);
+    g.gain.linearRampToValueAtTime(.022, s + .015);
+    g.gain.exponentialRampToValueAtTime(.0001, s + .09);
+    o.connect(g);
+    g.connect(SB);
+    o.start(s);
+    o.stop(s + .12);
+  }
+}
+
+/** Voiture lointaine : souffle filtré qui monte puis redescend en quelques secondes, à l’instant audio t. */
+function ambPass(t) {
+  const s = AC.createBufferSource(), f = AC.createBiquadFilter(), g = AC.createGain(), d = 3.5 + Math.random() * 2;
+  s.buffer = nb;
+  s.loop = true;
+  f.type = "bandpass";
+  f.Q.value = 1.2;
+  f.frequency.setValueAtTime(180, t);
+  f.frequency.linearRampToValueAtTime(620, t + d * .5);
+  f.frequency.linearRampToValueAtTime(220, t + d);
+  g.gain.setValueAtTime(.0001, t);
+  g.gain.linearRampToValueAtTime(.05, t + d * .5);
+  g.gain.linearRampToValueAtTime(.0001, t + d);
+  s.connect(f);
+  f.connect(g);
+  g.connect(SB);
+  s.start(t);
+  s.stop(t + d + .1);
+}
+
+/**
+ * Fait vivre l’ambiance toutes les 200 ms (appelée par mus) : le souffle et son filtre suivent la
+ * salle en douceur, des rafales le font respirer, oiseaux et voitures lointaines arrivent au hasard et
+ * la musique est baissée dehors pour laisser parler la rue. Hors jeu, les ambiances se taisent.
+ */
+function ambUpd(now) {
+  if (!AMBG) return;
+  const a = (ui === "play" || ui === "panel" || ui === "menu") && !T.cine && AMBR[CN],
+    k = a || { f: 400, g: 0, hum: 0, mus: 1 };
+  AMBG.gain.setTargetAtTime(k.g * (1 + .4 * Math.sin(now * .37) * Math.sin(now * .11 + 1)), now, .9);
+  AMBF.frequency.setTargetAtTime(k.f * (1 + .25 * Math.sin(now * .23)), now, .9);
+  AMBHG.gain.setTargetAtTime(k.hum, now, .9);
+  if (a && a.birds && now > ambBirdAt) { ambBirdAt = now + 2.5 + Math.random() * 5; ambBird(now + .05); }
+  if (a && a.cars && now > ambCarAt) { ambCarAt = now + 11 + Math.random() * 14; ambPass(now + .1); }
+  if (ui === "play") {
+    ambMus += (k.mus - ambMus) * .3;
+    MB.gain.value = cfg.mus * .4 * ambMus;
+  }
+}
+
+/** Multiplicateur de la hauteur des pas selon le sol de la ville : pelouse feutrée, gravier craquant, pavés sonores. */
+function worldStepK() {
+  if (CN !== "ville") return 1;
+  if (px > -30.4 && px < -19.6 && pz > -26.3 && pz < -17.7) return Math.abs(px + 24) < .9 || Math.abs(pz + 22) < .9 ? 1.5 : .5;
+  return Math.abs(px) < 10 && pz > 18.5 ? 1.2 : 1;
+}
+
+/** Vitesse de marche relative : Maj fait courir dehors et dans l’arrière-boutique (jamais dans les autres salles). */
+function worldRun() {
+  return keys.shift && !T.cityCine && ["back", "cour", "ville"].includes(CN) ? 1.55 : 1;
+}
+
+/** Peint le plan du quartier sur le canvas k : rues, bâtiments, repères relevés, joueur et sens de marche. */
+function worldMapPaint(k) {
+  const c = k.getContext("2d"), W = k.width, H = k.height, mx = W * .05, my = H * .05, mw = W * .9, mh = H * .9,
+    X = v => mx + (v + 33) / 66 * mw, Z = v => my + (v + 35) / 70 * mh, w = worldState();
+  c.fillStyle = "#efe9da";
+  c.fillRect(0, 0, W, H);
+  c.fillStyle = "#e2dac6";
+  c.fillRect(mx, my, mw, mh);
+  c.fillStyle = "#c2bcae";
+  for (const x of [-15, 15]) c.fillRect(X(x - 3), my, X(3) - X(-3), mh);
+  for (const z of [-31, 14]) c.fillRect(mx, Z(z - 3), mw, Z(3) - Z(-3));
+  c.fillStyle = "#a9b98f";
+  c.fillRect(X(-30.8), Z(-26.3), X(-19.2) - X(-30.8), Z(-17.2) - Z(-26.3));
+  c.fillStyle = "#d3c8b0";
+  c.fillRect(X(-10), Z(18), X(10) - X(-10), Z(32) - Z(18));
+  c.fillStyle = "#bdb5a5";
+  c.fillRect(X(-10), Z(-27), X(10) - X(-10), Z(-18) - Z(-27));
+  c.textAlign = "center";
+  c.textBaseline = "middle";
+  c.font = "700 " + Math.round(W * .026) + "px Arial, sans-serif";
+  const label = (t, x, z, col) => {
+    c.fillStyle = col;
+    t.split("\n").forEach((line, i, a) => c.fillText(line, X(x), Z(z) + (i - (a.length - 1) / 2) * W * .03));
+  };
+  for (const l of CITY_SPEC.lots) {
+    c.fillStyle = "#c9b697";
+    c.fillRect(X(l.x - l.w / 2), Z(l.z - l.d / 2), X(l.w) - X(0), Z(l.d) - Z(0));
+    c.strokeStyle = "#8f7f66";
+    c.lineWidth = 2;
+    c.strokeRect(X(l.x - l.w / 2), Z(l.z - l.d / 2), X(l.w) - X(0), Z(l.d) - Z(0));
+  }
+  label("LE MAGASIN", 0, -6, "#4a3b2e");
+  label("PASSAGE\nOUEST", -25, -7, "#4a3b2e");
+  label("QUAI DES\nCOLIS", 25, -7, "#4a3b2e");
+  label("ARCHIVES", 25, -21.5, "#4a3b2e");
+  label("CAFÉ\nDU COIN", -25, 23, "#4a3b2e");
+  label("POSTE", 25, 23, "#4a3b2e");
+  label("COUR", 0, -22.5, "#6b6153");
+  label("JARDIN", -25, -22, "#4e6038");
+  label("PLACE · MAQUETTE", 0, 31, "#6b6153");
+  c.fillStyle = "#6b5a46";
+  c.fillRect(X(-.8), Z(-27.4), X(.8) - X(-.8), Z(-26.7) - Z(-27.4));
+  c.fillRect(X(-3), Z(22), X(3) - X(-3), Z(28) - Z(22));
+  c.fillStyle = "#4a3b2e";
+  c.fillRect(X(0) - 1, Z(-27.4), 2, Z(-26.7) - Z(-27.4));
+  c.strokeStyle = "#6f6559";
+  c.lineWidth = 3;
+  c.strokeRect(mx, my, mw, mh);
+  CITY_SPEC.markers.forEach((q, i) => {
+    if (!w.seen[q.id]) return;
+    c.fillStyle = "#f2b24a";
+    c.strokeStyle = "#4a3b2e";
+    c.lineWidth = 3;
+    c.beginPath();
+    c.arc(X(q.x), Z(q.z), W * .027, 0, Math.PI * 2);
+    c.fill();
+    c.stroke();
+    c.fillStyle = "#2f2a23";
+    c.font = "700 " + Math.round(W * .03) + "px Arial, sans-serif";
+    c.fillText(String(i + 1), X(q.x), Z(q.z) + 1);
+  });
+  const ax = X(px), az = Z(pz), s = W * .03, fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+  c.fillStyle = "#b32a22";
+  c.strokeStyle = "#fff";
+  c.lineWidth = 3;
+  c.beginPath();
+  c.moveTo(ax + fx * s * 1.5, az + fz * s * 1.5);
+  c.lineTo(ax - fx * s + fz * s, az - fz * s - fx * s);
+  c.lineTo(ax - fx * s * .4, az - fz * s * .4);
+  c.lineTo(ax - fx * s - fz * s, az - fz * s + fx * s);
+  c.closePath();
+  c.fill();
+  c.stroke();
+}
+
+/** Ouvre le plan du quartier (touche M ou bouton 🗺) depuis la ville ; refermer reprend le jeu au même endroit. */
+function worldMap() {
+  if (ui !== "play" || CN !== "ville" || busy || T.cityCine) return;
+  const n = Object.keys(worldState().seen).length;
+  panel("<h1>Plan du quartier</h1><canvas id='wmap' width='528' height='560' aria-label='Plan du quartier' style='width:min(86vw,62vh,440px);height:auto;border-radius:6px;box-shadow:0 4px 18px rgba(0,0,0,.45)'></canvas><p>Le triangle rouge, c’est toi. Repères relevés : " + n + "/4" + (n ? " (pastilles dorées)." : ".") + "</p><button data-a='close'>Continuer</button>");
+  worldMapPaint($("wmap"));
+}
+
+/** Croix blanche sur fond vert : trousse de secours, pictogramme normalisé. */
+function worldAidPaint(c, W, H) {
+  c.fillStyle = "#1f7a46";
+  c.fillRect(0, 0, W, H);
+  c.fillStyle = "#fff";
+  c.fillRect(W * .4, H * .14, W * .2, H * .72);
+  c.fillRect(W * .14, H * .4, W * .72, H * .2);
+}
+
+/** Plan d’évacuation encadré : couloir, pièces, flèche verte vers la sortie et point « vous êtes ici ». */
+function worldEvacPaint(c, W, H) {
+  c.fillStyle = "#f6f2e6";
+  c.fillRect(0, 0, W, H);
+  c.fillStyle = "#1f7a46";
+  c.fillRect(0, 0, W, H * .17);
+  c.fillStyle = "#fff";
+  c.font = "700 " + Math.round(H * .11) + "px Arial, sans-serif";
+  c.textAlign = "center";
+  c.textBaseline = "middle";
+  c.fillText("PLAN D’ÉVACUATION", W / 2, H * .09);
+  const x0 = W * .12, y0 = H * .24, w = W * .76, h = H * .66;
+  c.fillStyle = "#e4dccb";
+  c.fillRect(x0, y0, w, h);
+  c.strokeStyle = "#6f6559";
+  c.lineWidth = 3;
+  c.strokeRect(x0, y0, w, h);
+  c.fillStyle = "#fff";
+  c.fillRect(x0 + w * .38, y0, w * .24, h);
+  c.strokeStyle = "#9b9384";
+  c.lineWidth = 2;
+  for (const f of [.33, .66]) {
+    c.beginPath();
+    c.moveTo(x0, y0 + h * f);
+    c.lineTo(x0 + w * .38, y0 + h * f);
+    c.moveTo(x0 + w * .62, y0 + h * f);
+    c.lineTo(x0 + w, y0 + h * f);
+    c.stroke();
+  }
+  c.strokeStyle = "#1f7a46";
+  c.fillStyle = "#1f7a46";
+  c.lineWidth = 5;
+  c.beginPath();
+  c.moveTo(x0 + w * .5, y0 + h * .7);
+  c.lineTo(x0 + w * .5, y0 + h * .1);
+  c.stroke();
+  c.beginPath();
+  c.moveTo(x0 + w * .5, y0 + h * .02);
+  c.lineTo(x0 + w * .43, y0 + h * .14);
+  c.lineTo(x0 + w * .57, y0 + h * .14);
+  c.closePath();
+  c.fill();
+  c.fillStyle = "#b32a22";
+  c.beginPath();
+  c.arc(x0 + w * .5, y0 + h * .72, H * .035, 0, Math.PI * 2);
+  c.fill();
+}
+
+/**
+ * Détails d’usage du couloir de l’arrière-boutique : plinthes, soubassement vert sauge à couvre-mur, main
+ * courante inox, lignes jaunes au sol, chemin de câbles au plafond, trousse de secours et plan d’évacuation.
+ * Ils suivent les pans de mur existants (les portes restent dégagées) et ne bloquent jamais la visée.
+ */
+function worldBackDetails() {
+  for (const side of [-1, 1]) {
+    const segs = side < 0 ? [[-9, -7.05], [-4.95, -1.05], [1.05, 4.95], [7.05, 9]] : [[-3, -1.05], [1.05, 4.95], [7.05, 9]], x = side * 1.28;
+    for (const [a, b] of segs) {
+      const z = (a + b) / 2, l = b - a;
+      bx(.05, .1, l, x, 0, z, 0x747a7b);
+      bx(.035, .95, l, x, .1, z, 0x93a396);
+      bx(.06, .04, l, x, 1.05, z, 0xe8e5dc);
+      bx(.05, .05, l - .1, x - side * .03, .74, z, 0xb7bcbd);
+      for (const k of [-.4, .4]) bx(.04, .05, .06, x + side * .005, .7, z + k * l / 2, 0x8a8f90);
+    }
+    bx(.07, .006, 17.6, side * .95, 0, 0, 0xd9b92a);
+  }
+  bx(.22, .04, 17.8, 1.0, 2.96, 0, 0x8a8f90);
+  bx(.14, .03, 17.8, 1.0, 3.0, 0, 0x1e1f20);
+  for (let z = -8; z <= 8; z += 2) bx(.26, .06, .04, 1.0, 2.92, z, 0x6f7374);
+  worldSign([""], -1.292, 1.45, -3, .34, .34, Math.PI / 2, "green", worldAidPaint, "secours");
+  worldPlate(["TROUSSE", "DE SECOURS"], -1.292, 1.18, -3, Math.PI / 2, "white", .07);
+  worldSign([""], 1.292, 1.5, 3, .62, .46, -Math.PI / 2, "paper", worldEvacPaint, "evacuation");
+}
+
+/**
+ * Fait vivre le quartier à chaque image de jeu (appelée par worldUpd) : demande une seule fois la carte
+ * d’ombres du soleil de la salle courante, anime passants et oiseaux dans la ville et ne montre le bouton
+ * du plan que là où il sert.
+ */
+function worldLifeUpd(dt) {
+  const sn = cur && cur.sun;
+  if (sn && !sn.userData.shot) { sn.userData.shot = 1; R.shadowMap.needsUpdate = true; }
+  if (CN === "ville") { worldWalkUpd(dt); worldBirdUpd(dt, UT.value); }
+  const b = $("wmapb");
+  if (b) b.hidden = !(ui === "play" && CN === "ville" && !T.cityCine);
+}
+// <<< CONNEX VIE
 
 /** Point de départ déplacé ; insistance, texte et destination d’origine conservés. */
 function worldOfficeDoor() {
@@ -10259,6 +11200,7 @@ function setUI(u) {
   const p = u === "play";
   if ($("worldloc")) $("worldloc").hidden = !p || !["back", "cour", "ville", "maquette"].includes(CN);
   if ($("cityskip")) $("cityskip").hidden = !p || !T.cityCine;
+  if ($("wmapb")) $("wmapb").hidden = !p || CN !== "ville" || !!T.cityCine;
   if (p && !TOUCH && !LF) lockReq();
   $("x").style.display = p ? "block" : "none";
   $("mb").style.display = u === "home" ? "none" : "block";
@@ -10293,6 +11235,7 @@ function fullscreenControls() {
   return '<button data-a="fullscreen" data-fullscreen-toggle aria-pressed="false">Plein écran</button>' +
     '<p class="fullscreen-note" data-fullscreen-status role="status" aria-live="polite" hidden></p>';
 }
+/** Entre dans le plein écran ou en sort, sans double déclenchement ; affiche un message clair si le navigateur le refuse. */
 async function toggleFullscreen() {
   if (fullscreenPending) return;
   fullscreenPending = true;
@@ -10975,6 +11918,8 @@ $("hreg").onclick = () => ov(regH("") + "<button data-a='hback'>Retour</button>"
 $("hrst").onclick = ACT.rst;
 /** Relie le bouton ☰ à la pause. */
 $("mb").onclick = menu;
+/** Relie le bouton du plan du quartier à son panneau. */
+$("wmapb").onclick = worldMap;
 /** Relie le bouton Jouer au démarrage complet. */
 $("play").onclick = launch;
 $("hfull").onclick = toggleFullscreen;
@@ -11543,6 +12488,7 @@ addEventListener("keydown", (e) => {
   if (!e.repeat) {
     if (k === "e" || k === " ") use();
     if (k === "f") togIR();
+    if (k === "m") ui === "panel" && $("wmap") ? resume() : worldMap();
   }
 });
 
@@ -11792,6 +12738,7 @@ $("fb").onclick = togIR;
 function can(x, z) {
   if (!cur.ok(x, z)) return false;
   if (CN === "shop" && NP.some((n) => (x - n.x) ** 2 + (z - n.z) ** 2 < 0.34)) return false;
+  if (CN === "ville" && worldWalkerHit(x, z)) return false;
   for (const [a, b, c, d] of cur.sol)
     if (x > a - 0.22 && x < b + 0.22 && z > c - 0.22 && z < d + 0.22) return false;
   return true;
@@ -11932,15 +12879,16 @@ function upd(dt) {
       f /= l;
       r /= l;
     }
-    const sp = 3.2 * dt,
+    const run = worldRun(),
+      sp = 3.2 * dt * run,
       sy = Math.sin(yaw),
       cy = Math.cos(yaw),
       dx = (-sy * f + cy * r) * sp,
       dz = (-cy * f - sy * r) * sp;
     if (can(px + dx, pz)) px += dx;
     if (can(px, pz + dz)) pz += dz;
-    stepT += dt;
-    bob += dt * 9;
+    stepT += dt * run;
+    bob += dt * 9 * Math.min(run, 1.3);
     if (stepT > 0.42) {
       stepT = 0;
       stepS();
