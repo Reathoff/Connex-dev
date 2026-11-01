@@ -472,6 +472,17 @@ body.dlg #c {
   }
 }
 
+/* Retour discret si le navigateur ou l’intégration refuse le plein écran. */
+.fullscreen-note {
+  max-width: min(480px, 86vw);
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.fullscreen-note[hidden] { display: none; }
+[data-fullscreen-toggle]:disabled { opacity: 0.7; cursor: wait; }
+
     </style>
   </head>
   <body>
@@ -505,6 +516,8 @@ body.dlg #c {
       <h1>Avant l’ouverture</h1>
       <p class="tag">La boutique ouvre bientôt. Une voix t’attend.</p>
       <button id="play">Jouer</button>
+      <button id="hfull" data-fullscreen-toggle aria-pressed="false">Plein écran</button>
+      <p class="fullscreen-note" data-fullscreen-status role="status" aria-live="polite" hidden></p>
       <button id="hreg">Registre des fins</button>
       <button id="hrst">Réinitialiser le jeu</button>
       <p class="help">
@@ -2855,7 +2868,8 @@ function persMerge(g) {
  * haut raccourci, épaules et poignets raccordés, sans volumes articulaires rapportés. lg/ar
  * sont les groupes animables ; mkNpc() recentre leurs axes sur les nouvelles articulations
  * en gardant la pose au repos. o fournit c1 (haut), c2 (pantalon et chaussures) et h (cheveux).
- * Léa conserve son tablier vert et sa queue de cheval ; Karim son polo, son badge et sa barbe
+ * Léa porte un sweat violet, un jean et des baskets ; sa coiffure reste inchangée.
+ * Karim conserve son polo, son badge et sa barbe
  * colorée sur la mâchoire. Les visages simples sont inchangés. Après persMerge() : cinq
  * maillages fixes, un par jambe et deux par bras.
  */
@@ -2913,7 +2927,11 @@ function persStaff(g, lg, ar, o, lea) {
     persAdd(
       p,
       persLathe(
-        [
+        lea ? [
+          [0, -0.435], [0.062, -0.435], [0.068, -0.2], [0.069, -0.05],
+          [0.068, 0.14], [0.065, 0.18], [0.065, 0.2], [0.085, 0.24],
+          [0.092, 0.32], [0, 0.32],
+        ] : [
           [0, -0.435],
           [0.062, -0.435],
           [0.071, -0.2],
@@ -2928,7 +2946,7 @@ function persStaff(g, lg, ar, o, lea) {
       o.c2,
       [0, 0, 0],
     );
-    persAdd(p, persShoeGeo(0.12, 0.075, 0.215), o.c2, [0, -0.4625, 0.034]);
+    persAdd(p, persShoeGeo(0.12, 0.075, 0.215), lea ? 0xe9e5dc : o.c2, [0, -0.4625, 0.034]);
     // Semelle sombre : un liseré fin qui détache la chaussure du sol.
     persAdd(p, persShoeGeo(0.126, 0.022, 0.221), 0x23201e, [0, -0.489, 0.034]);
   });
@@ -3069,49 +3087,10 @@ function persStaff(g, lg, ar, o, lea) {
       [0, 0.168, -0.2135],
       [-1.26, 0, 0],
     );
-    // Tablier en un panneau ajusté : plus de plaques épaisses ou de bretelles saillantes.
-    cloth(
-      [
-        [0.182, 0.67, 0.166],
-        [0.18, 0.79, 0.166],
-        [0.163, 0.95, 0.166],
-        [0.102, 1.015, 0.166],
-        [0.102, 1.17, 0.166],
-      ],
-      A,
-    );
-    persAdd(
-      g,
-      new THREE.CylinderGeometry(0.216, 0.216, 0.032, 8, 1, true, Math.PI / 8),
-      A,
-      [0, 0.95, 0],
-      0,
-      [1, 1, 0.64],
-    );
-    // Bretelles plates : deux lanières fines qui montent du haut du plastron et épousent le
-    // torse jusqu’à l’épaule, au lieu de tiges pointues.
-    [-1, 1].forEach((side) => {
-      [
-        [
-          [0.08, 1.16, 0.168],
-          [0.087, 1.262, 0.156],
-        ],
-        [
-          [0.087, 1.262, 0.156],
-          [0.092, 1.322, 0.1],
-        ],
-      ].forEach(([a, b]) => {
-        const v = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]),
-          m = persAdd(g, new THREE.BoxGeometry(0.03, v.length() + 0.004, 0.007), A, [
-            (side * (a[0] + b[0])) / 2,
-            (a[1] + b[1]) / 2,
-            (a[2] + b[2]) / 2,
-          ]);
-        v.x *= side;
-        m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), v.normalize());
-      });
-    });
-    persAdd(g, new THREE.PlaneGeometry(0.12, 0.07), o.c1, [0, 0.815, 0.176]);
+    // Sweat de tous les jours : encolure ronde discrète, sans col de chemise,
+    // tablier, badge ou gilet. Le visage, la coiffure et les articulations restent identiques.
+    persAdd(g, persLathe([[0.116, 1.345], [0.079, 1.36], [0.077, 1.365]], 8, 0.64),
+      0x79569b, [0, 0, 0]);
   } else {
     // Une seule calotte de cheveux, sans mèche ou moustache en relief.
     persAdd(
@@ -9398,11 +9377,64 @@ function setUI(u) {
  * Remplit et affiche le panneau commun #pan avec le fragment HTML h. Cette fonction seule
  * n’arrête pas le jeu ; panel() ajoute le changement d’état nécessaire.
  */
+/** Plein écran natif : accueil et pause, avec retour explicite et refus géré. */
+let fullscreenPending = false, fullscreenMessage = "";
+function gameIsFullscreen() {
+  return !!(document.fullscreenElement || document.webkitFullscreenElement);
+}
+function fullscreenSync() {
+  const active = gameIsFullscreen();
+  document.querySelectorAll("[data-fullscreen-toggle]").forEach(button => {
+    button.textContent = active ? "Quitter le plein écran" : "Plein écran";
+    button.setAttribute("aria-pressed", String(active));
+    button.disabled = fullscreenPending;
+  });
+  document.querySelectorAll("[data-fullscreen-status]").forEach(note => {
+    note.textContent = fullscreenMessage;
+    note.hidden = !fullscreenMessage;
+  });
+}
+function fullscreenControls() {
+  return '<button data-a="fullscreen" data-fullscreen-toggle aria-pressed="false">Plein écran</button>' +
+    '<p class="fullscreen-note" data-fullscreen-status role="status" aria-live="polite" hidden></p>';
+}
+async function toggleFullscreen() {
+  if (fullscreenPending) return;
+  fullscreenPending = true;
+  fullscreenMessage = "";
+  fullscreenSync();
+  try {
+    if (gameIsFullscreen()) {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (!exit) throw new Error("Fullscreen unavailable");
+      await exit.call(document);
+    } else {
+      const root = document.documentElement;
+      const enter = root.requestFullscreen || root.webkitRequestFullscreen;
+      if (!enter) throw new Error("Fullscreen unavailable");
+      await enter.call(root);
+    }
+  } catch (_) {
+    fullscreenMessage = "Le plein écran est indisponible ici. Ouvre le lien du jeu dans un onglet de ton navigateur.";
+  } finally {
+    fullscreenPending = false;
+    fullscreenSync();
+  }
+}
+function fullscreenChanged() {
+  fullscreenMessage = "";
+  fullscreenSync();
+  rs();
+}
+document.addEventListener("fullscreenchange", fullscreenChanged);
+document.addEventListener("webkitfullscreenchange", fullscreenChanged);
+
 function ov(h) {
   $("pan").className = "o";
   document.body.classList.remove("dlg");
   $("pan").innerHTML = h;
   $("pan").style.display = "flex";
+  fullscreenSync();
 }
 
 /**
@@ -9778,7 +9810,7 @@ let regFrom = "menu";
  * renvoie du texte ; menu() s’occupe de l’afficher et d’arrêter les commandes.
  */
 const menuH = () =>
-  '<h1 style="font-size:30px">Pause</h1><button data-a="resume">Reprendre</button><button data-a="reg">Registre des fins</button><label>Musique <input type="range" min="0" max="1" step=".05" value="' +
+  '<h1 style="font-size:30px">Pause</h1><button data-a="resume">Reprendre</button>' + fullscreenControls() + '<button data-a="reg">Registre des fins</button><label>Musique <input type="range" min="0" max="1" step=".05" value="' +
   cfg.mus +
   '" data-r="mus"></label><label>Effets <input type="range" min="0" max="1" step=".05" value="' +
   cfg.sfx +
@@ -9794,6 +9826,7 @@ const menuH = () =>
  * n’est utilisé.
  */
 const ACT = {
+  fullscreen: toggleFullscreen,
   /** Ferme un panneau et reprend le jeu. */
   close: resume,
   /** Reprend le jeu sans recommencer. */
@@ -10041,6 +10074,8 @@ $("hrst").onclick = ACT.rst;
 $("mb").onclick = menu;
 /** Relie le bouton Jouer au démarrage complet. */
 $("play").onclick = launch;
+$("hfull").onclick = toggleFullscreen;
+fullscreenSync();
 
 /**
  * Quitte l’écran d’inactivité, rétablit l’état précédent et la capture de souris si
@@ -10253,8 +10288,8 @@ function spawnN() {
     nm: "Léa",
     x: -2.8,
     z: 0.9,
-    c1: 0x8e44ad,
-    c2: 0x2c3e50,
+    c1: 0x9168b8,
+    c2: 0x4d709b,
     h: 0x5a3220,
     spot: [0, 0.45],
     i: "Ah, te voilà ! Léa, responsable du rayon. La table du centre est vide et on ouvre bientôt. Qu’est-ce qu’on met en vitrine ?",
