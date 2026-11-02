@@ -1696,6 +1696,46 @@ function mkS(n, ok, bg, fog) {
 const rect = (a, b, c, d) => (x, z) => x > a && x < b && z > c && z < d;
 
 /**
+ * Emprise d'un meuble complet, éventuellement tournée autour de Y. Les quatre premières
+ * valeurs restent son rectangle englobant, pour les ombres et worldMoved(). Une rotation
+ * ajoute le repère local : le joueur ne heurte donc pas les coins vides de ce rectangle.
+ */
+function solidBox(w, d, x, z, angle = 0) {
+  const c = Math.cos(angle), s = Math.sin(angle), hw = w / 2, hd = d / 2,
+    ex = Math.abs(c) * hw + Math.abs(s) * hd,
+    ez = Math.abs(s) * hw + Math.abs(c) * hd,
+    q = [x - ex, x + ex, z - ez, z + ez];
+  if (Math.abs(s) > 1e-8) q.push(c, s, hw, hd);
+  cur.sol.push(q);
+  return q;
+}
+
+/** Emprise ronde : le socle et l'abat-jour d'un lampadaire n'ont pas de coins invisibles. */
+function solidDisk(r, x, z) {
+  const q = [x - r, x + r, z - r, z + r, "disk", r];
+  cur.sol.push(q);
+  return q;
+}
+
+/**
+ * Contact d'un corps rond de rayon r avec une emprise, ancienne ou nouvelle. Le test
+ * précis arrondit la marge aux coins ; elle n'est plus un carré qui accroche les meubles.
+ * Le centre se déduit du rectangle : worldMoved() conserve aussi les formes tournées.
+ */
+function solidHit(q, x, z, r) {
+  const [a, b, c, d] = q;
+  if (x <= a - r || x >= b + r || z <= c - r || z >= d + r) return false;
+  const dx = x - (a + b) / 2, dz = z - (c + d) / 2;
+  if (q[4] === "disk") return dx * dx + dz * dz < (q[5] + r) ** 2;
+  const rotated = q.length > 4,
+    lx = rotated ? dx * q[4] - dz * q[5] : dx,
+    lz = rotated ? dx * q[5] + dz * q[4] : dz,
+    ox = Math.max(Math.abs(lx) - (rotated ? q[6] : (b - a) / 2), 0),
+    oz = Math.max(Math.abs(lz) - (rotated ? q[7] : (d - c) / 2), 0);
+  return ox * ox + oz * oz < r * r || (ox === 0 && oz === 0);
+}
+
+/**
  * Ajoute un pavé à la salle en construction. w/h/d = largeur/hauteur/profondeur ; x/y/z =
  * position de sa base ; c = couleur. Options o : m = matériau fourni, t = texture, s =
  * obstacle solide. Avec s, un rectangle est ajouté aux collisions cur.sol.
@@ -1782,9 +1822,11 @@ function cyl(r, h, x, y, z, c, s) {
 /**
  * Assemble une chaise de bureau facettée : assise et dossier rembourrés, colonne de vérin,
  * piètement à cinq branches et roulettes. x/z placent la chaise au sol (dossier côté +z) ;
- * c choisit la couleur du rembourrage. C’est un raccourci de décoration, pas une mécanique.
+ * c choisit la couleur du rembourrage. Une seule emprise couvre assise, dossier et roues,
+ * au lieu de multiplier les petits obstacles qui bloqueraient les pieds du joueur.
  */
 function chair(x, z, c) {
+  solidBox(0.64, 0.68, x, z + 0.02);
   const k = 0x222222;
   cbx(0.52, 0.09, 0.5, x, 0.45, z - 0.01, c, { b: 0.03 });
   shopBox(0.42, 0.04, 0.4, x, 0.41, z, k);
@@ -1807,6 +1849,7 @@ function chair(x, z, c) {
  * avec la lampe torche du joueur, gérée par setLamp().
  */
 function lamp(x, z) {
+  solidDisk(0.3, x, z);
   const c = 0x5a3a1a;
   llathe(
     [
@@ -6561,7 +6604,8 @@ function bShop() {
       lcyl(0.025, 0.02, 0.08, -2.2 + i * 0.38, 0, 3 + j * 0.33, 0x4a2a14, { n: 5 }),
     ),
   );
-  cbx(0.9, 0.3, 0.8, -2.2, 0.08, 3, 0x266866, { s: 1, b: 0.04 });
+  solidBox(1.16, 0.88, -2.2, 3.03);
+  cbx(0.9, 0.3, 0.8, -2.2, 0.08, 3, 0x266866, { b: 0.04 });
   cbx(0.62, 0.12, 0.66, -2.2, 0.36, 2.95, 0x2f7a78, { b: 0.04 });
   cbx(0.9, 0.62, 0.2, -2.2, 0.36, 3.33, 0x266866, { b: 0.05, rx: 0.12 });
   cbx(0.6, 0.42, 0.1, -2.2, 0.5, 3.2, 0x2f7a78, { b: 0.04, rx: 0.12 });
@@ -7471,8 +7515,9 @@ function bDark() {
     a.userData.keep = 1;
     (cur.bb || (cur.bb = [])).push(a);
   });
-  // Fauteuil de cinéma : assise (même collision), coussins, flancs pleins, accoudoirs bois.
-  cbx(0.6, 0.08, 0.6, 0, 0.45, 1.4, K2, { s: 1 });
+  // Une seule emprise couvre aussi les flancs, le dossier et les accoudoirs.
+  solidBox(0.78, 0.7, 0, 1.42);
+  cbx(0.6, 0.08, 0.6, 0, 0.45, 1.4, K2);
   cbx(0.54, 0.1, 0.56, 0, 0.53, 1.37, K3, { b: 0.04 });
   cbx(0.6, 0.75, 0.08, 0, 0.5, 1.72, K2);
   cbx(0.52, 0.6, 0.06, 0, 0.6, 1.66, K3, { b: 0.03 });
@@ -9633,7 +9678,7 @@ function worldBench(x,z,angle=0) {
   cbx(1.9,.32,.07,0,.62,.24,0x8b6a4b,{b:.02});
   for(const k of [-.8,.8]){bx(.07,.44,.44,k,0,0,0x3b3d3f);bx(.07,.5,.06,k,.44,.24,0x3b3d3f);}
   cur.g=old;g.position.set(x,0,z);g.rotation.y=angle;old.add(g);
-  cur.sol.push(Math.abs(Math.sin(angle))<.5?[x-1,x+1,z-.3,z+.32]:[x-.3,x+.32,z-1,z+1]);
+  solidBox(1.9,.52,x+Math.sin(angle)*.02,z+Math.cos(angle)*.02,angle);
 }
 
 /** Arbre d’alignement : tronc (avec collision au besoin) et houppier facetté. */
@@ -11992,7 +12037,7 @@ const nFree = (x, z) =>
   x < 6.2 &&
   z > -5.2 &&
   z < 5.2 &&
-  !S.shop.sol.some(([a, b, c, d]) => x > a - 0.38 && x < b + 0.38 && z > c - 0.38 && z < d + 0.38);
+  !S.shop.sol.some(q => solidHit(q, x, z, 0.38));
 
 /**
  * Vérifie qu’un trajet direct de (a,b) à (c,d) est libre pour un PNJ. Échantillonne le
@@ -12736,12 +12781,43 @@ $("fb").onclick = togIR;
 // 12 · COLLISIONS, SIMULATION ET RENDU
 // ============================================================================
 function can(x, z) {
+  if (!Number.isFinite(x) || !Number.isFinite(z)) return false;
   if (!cur.ok(x, z)) return false;
   if (CN === "shop" && NP.some((n) => (x - n.x) ** 2 + (z - n.z) ** 2 < 0.34)) return false;
   if (CN === "ville" && worldWalkerHit(x, z)) return false;
-  for (const [a, b, c, d] of cur.sol)
-    if (x > a - 0.22 && x < b + 0.22 && z > c - 0.22 && z < d + 0.22) return false;
+  for (const q of cur.sol)
+    if (solidHit(q, x, z, 0.22)) return false;
   return true;
+}
+
+/**
+ * Avance par pas de 8 cm au maximum : même en course ou après une image lente, aucun
+ * mur, siège ou personnage ne peut être traversé entre deux positions testées. Chaque
+ * axe glisse séparément ; une recherche courte approche le contact sans bond ni recul.
+ */
+function movePlayer(dx, dz) {
+  if (!Number.isFinite(dx) || !Number.isFinite(dz)) return;
+  const steps = Math.max(1, Math.ceil(Math.hypot(dx, dz) / 0.08)),
+    sx = dx / steps, sz = dz / steps;
+  const advance = (x, z) => {
+    if (can(px + x, pz + z)) {
+      px += x;
+      pz += z;
+      return;
+    }
+    let lo = 0, hi = 1;
+    for (let i = 0; i < 7; i++) {
+      const t = (lo + hi) / 2;
+      if (can(px + x * t, pz + z * t)) lo = t;
+      else hi = t;
+    }
+    px += x * lo;
+    pz += z * lo;
+  };
+  for (let i = 0; i < steps; i++) {
+    if (sx) advance(sx, 0);
+    if (sz) advance(0, sz);
+  }
 }
 
 /**
@@ -12885,8 +12961,7 @@ function upd(dt) {
       cy = Math.cos(yaw),
       dx = (-sy * f + cy * r) * sp,
       dz = (-cy * f - sy * r) * sp;
-    if (can(px + dx, pz)) px += dx;
-    if (can(px, pz + dz)) pz += dz;
+    movePlayer(dx, dz);
     stepT += dt * run;
     bob += dt * 9 * Math.min(run, 1.3);
     if (stepT > 0.42) {
