@@ -15,3 +15,7 @@ Three.js r128 est fourni dans `vendor/`. Le dépôt principal reste privé.
 ## Collisions corrigées
 
 Chaises et lampadaires solides, fauteuils et bancs aux bonnes dimensions, glissement aux coins et déplacements sécurisés même en course. Les 20 salles, quêtes, accès infrarouges, dix fins principales et deux bonus ont été revérifiés sur ordinateur et téléphone émulé (376 contrôles navigateur et 26 tests Python). Les sauvegardes, dialogues, vidéos et shaders sont conservés. Pas de test sur un vrai téléphone ni de benchmark matériel.
+
+## Interactions dans la ville
+
+Les passants et personnes assises utilisent désormais les modèles facettés et articulés des personnages principaux, avec des tenues, peaux et cheveux variés, regard et clignements. Il est possible de parler à chacun et de choisir entre deux sujets. Dix personnes sur ordinateur, six sur tactile (pour alléger le rendu). Douze objets et panneaux supplémentaires proposent chacun deux actions ou lectures. Ces activités sont facultatives : elles ne changent pas les tâches, les fins ou les sauvegardes.
