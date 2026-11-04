@@ -12638,7 +12638,7 @@ const kk = (e) => {
 
 /**
  * Appui clavier : valide le code sur Entrée, mémorise les déplacements, déclenche
- * E/Espace/F une seule fois et ouvre la pause avec Échap si la souris n’est pas capturée.
+ * E/Espace/F une seule fois et ouvre la pause avec Échap lorsqu’un appui est reçu.
  */
 addEventListener("keydown", (e) => {
   if (ui === "panel" && e.key === "Enter" && $("cd")) return ACT.code();
@@ -12646,7 +12646,7 @@ addEventListener("keydown", (e) => {
   if (!k) return;
   if (ui === "play") {
     if (k === " " || k.startsWith("arrow")) e.preventDefault();
-    if (k === "escape" && !locked()) {
+    if (k === "escape") {
       menu();
       return;
     }
@@ -12775,15 +12775,12 @@ cv.addEventListener("click", () => {
 });
 
 /**
- * Actualise le drapeau de capture. Perdre la souris pendant une partie ouvre le menu de
- * pause.
+ * Actualise le drapeau de capture sans ouvrir la pause : une perte asynchrone de souris
+ * (panneau, changement de focus ou refus du navigateur) n’est pas une demande de pause.
+ * La pause reste accessible par le bouton de menu ou par Échap lorsqu’il est reçu.
  */
 document.addEventListener("pointerlockchange", () => {
-  if (locked()) {
-    LF = 0;
-    return;
-  }
-  if (ui === "play") menu();
+  if (locked()) LF = 0;
 });
 
 /**

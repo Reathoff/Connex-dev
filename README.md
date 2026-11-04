@@ -25,3 +25,5 @@ Les passants et personnes assises utilisent désormais les modèles facettés et
 En panne, les flèches infrarouges guident vers la porte du personnel puis le local technique. Le retour du cirque est orienté vers la sortie ; en cas d'arrivée depuis les ruines, il revient aux ruines. En ville, la galerie des tilleuls et l'atelier du quartier sont deux lieux séparés de l'entreprise.
 
 La fin 10 est enregistrée en franchissant la porte blanche ou la porte 2 des colis. Le directeur apparaît quand on repose le plan et cesse de revenir une fois les fins 5 et 7 obtenues. Une nouvelle tentative conserve le registre et ne rejoue ni l'introduction ni le tutoriel ; une réinitialisation efface la progression et relance l'introduction puis le tutoriel de six étapes.
+
+- La perte de capture de la souris ne déclenche plus de pause intempestive ; le menu ☰ et Échap restent disponibles.
