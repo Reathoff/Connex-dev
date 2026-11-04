@@ -19,3 +19,9 @@ Chaises et lampadaires solides, fauteuils et bancs aux bonnes dimensions, glisse
 ## Interactions dans la ville
 
 Les passants et personnes assises utilisent désormais les modèles facettés et articulés des personnages principaux, avec des tenues, peaux et cheveux variés, regard et clignements. Il est possible de parler à chacun et de choisir entre deux sujets. Dix personnes sur ordinateur, six sur tactile (pour alléger le rendu). Douze objets et panneaux supplémentaires proposent chacun deux actions ou lectures. Ces activités sont facultatives : elles ne changent pas les tâches, les fins ou les sauvegardes.
+
+## Parcours corrigés et tutoriel
+
+En panne, les flèches infrarouges guident vers la porte du personnel puis le local technique. Le retour du cirque est orienté vers la sortie ; en cas d'arrivée depuis les ruines, il revient aux ruines. En ville, la galerie des tilleuls et l'atelier du quartier sont deux lieux séparés de l'entreprise.
+
+La fin 10 est enregistrée en franchissant la porte blanche ou la porte 2 des colis. Le directeur apparaît quand on repose le plan et cesse de revenir une fois les fins 5 et 7 obtenues. Une nouvelle tentative conserve le registre et ne rejoue ni l'introduction ni le tutoriel ; une réinitialisation efface la progression et relance l'introduction puis le tutoriel de six étapes.

@@ -6800,7 +6800,7 @@ function bCam() {
   // Interaction « Porte blanche » : le nom sert à l’indication de visée, et la fonction passée en dernier définit l’action. Destinations possibles, selon les conditions ci-dessous : dark.
   it(cbx(1.6, 2.4, 0.12, 0, 0, -19.85, 0xffffff), "Porte blanche", () => {
     say("Ne fais pas ça. Enfin… fais ce que tu veux.");
-    after(2.5, () => go("dark", 0, 1.4, 0));
+    mysteryEntrance({room:"dark",x:0,z:1.4,yaw:0,door2:false});
   });
   L(0, 1.5, -19, 0xffffff, 2, 8);
   cur.it[0].material.emissive.setHex(0xdddddd);
@@ -6846,6 +6846,7 @@ function bRB() {
     T.rb = "r";
     doorS();
     say("Rouge. Courageux. Ou inconscient, je ne sais jamais.");
+    T.circusOrigin="rb";
     go("circus", 0, 11, 0);
   });
 
@@ -6941,7 +6942,7 @@ function bCirc(nm, c1, t2) {
   tx.magFilter = tx.minFilter = THREE.LinearFilter;
   const sg = M(new THREE.PlaneGeometry(3, 1.5), new THREE.MeshBasicMaterial({ map: tx }));
   sg.position.set(0, 2.2, 7);
-  if (nm === "circus" && T.bo) circleDoor();
+  if (nm === "circus") circleDoor();
 }
 
 /**
@@ -7352,8 +7353,7 @@ function colDoors() {
             }
             if (n === 2) {
               say("Celle-ci… je ne l’avais jamais autorisée.");
-              T.d2 = 1;
-              go("dark", 0, 0, 0);
+              mysteryEntrance({room:"dark",x:0,z:0,yaw:0,door2:true});
               return;
             }
             say(
@@ -7714,16 +7714,11 @@ function plan() {
 
 /**
  * Fait apparaître le directeur dans la salle des colis puis ouvre le choix
- * Démissionner/S’enfuir. Reporte la scène si le joueur est dans un menu ou dans certaines
- * conditions d’exploration ; ne la lance qu’une fois par tentative. Le modèle low poly vient
- * de persDirector() : posé au même endroit (0, −8), orienté vers +z comme l’original.
+ * Démissionner/S’enfuir après avoir reposé le plan. Ne revient plus quand les fins 5 et 7
+ * sont toutes deux enregistrées. Son corps et son regard sont tournés vers le joueur.
  */
 function director() {
-  if (T.dir || CN !== "colis" || T.pw) return;
-  if (T.ir && SV.main.includes("FIN-008")) {
-    after(8, director);
-    return;
-  }
+  if (T.dir || CN !== "colis" || (SV.main.includes(fid(5)) && SV.main.includes(fid(7)))) return;
   if (ui !== "play") {
     after(3, director);
     return;
@@ -7733,10 +7728,11 @@ function director() {
   cur = S.colis;
   const dg = persDirector();
   dg.position.set(0, 0, -8);
+  dg.rotation.y=Math.atan2(px-dg.position.x,pz-dg.position.z);
   cur.g.add(dg);
   DIR = dg;
   cur = c0;
-  yaw = Math.PI;
+  yaw = Math.atan2(-(dg.position.x-px),-(dg.position.z-pz));
   pit = 0;
   say("Une personne est entrée.");
   after(2.5, () =>
@@ -8514,7 +8510,7 @@ function setLamp() {
   const m = T.lm || 0;
   SPOT.visible = !!T.fl8 && m > 0;
   T.ir = m === 2;
-  IRL.forEach((o) => (o.visible = T.ir && (!o.userData.pw || SV.main.includes("FIN-008"))));
+  IRL.forEach((o) => (o.visible = T.ir && (!o.userData.pw || SV.main.includes("FIN-008")) && (!o.userData.blackout || (T.bo && !T.pw))));
   SPOT.color.setHex(m === 2 ? 0x44ff77 : 0xfff2d0);
   SPOT.intensity = m === 2 ? 1.1 : 2.4;
   $("fb").innerHTML = [
@@ -8669,6 +8665,8 @@ function arrows(pts) {
   const q = new THREE.Mesh(exMerge(gs), new THREE.MeshBasicMaterial({ vertexColors: true }));
   cur.g.add(q);
   irm(q);
+  q.userData.path=pts.map(p=>p.slice());
+  return q;
 }
 
 /**
@@ -8745,12 +8743,8 @@ function blackoutShop() {
     gl.visible = false;
     fl.visible = false;
   }
-  arrows([
-    [0, 4.3],
-    [-4.8, 4.3],
-    [-5.2, 3.5],
-    [-6, 3.5],
-  ]);
+  const trail=arrows([[0,4.0],[0,-5.25]]);
+  trail.userData.blackout=1;
 }
 
 /**
@@ -8942,6 +8936,7 @@ function bRuin() {
   // Interaction « Porte rouge » : le nom sert à l’indication de visée, et la fonction passée en dernier définit l’action. Destinations possibles, selon les conditions ci-dessous : circus.
   it(cbx(0.12, 2.2, 1.2, 15.88, 0, -29, 0xc0392b), "Porte rouge", () => {
     doorS();
+    T.circusOrigin="ruin";
     go("circus", 0, 11, 0);
   });
 }
@@ -8953,9 +8948,9 @@ function bRuin() {
  * encadrement doré, un arc à étoile et des panneaux moulurés.
  */
 function circleDoor() {
-  const a0 = -0.7,
-    G = 0xd4b060,
-    C = 0xc0392b;
+  const G = 0xd4b060, C = 0xc0392b;
+  if (T.bo) {
+  const a0 = -0.7;
 
   // Interaction « Passage » : le nom sert à l’indication de visée, et la fonction passée en dernier définit l’action. Destinations possibles, selon les conditions ci-dessous : gen.
   const px = Math.cos(a0) * 16.6,
@@ -8990,6 +8985,7 @@ function circleDoor() {
     [0, 10.3],
     [10.6, -8.9],
   ]);
+  }
   cbx(1.7, 2.8, 0.1, 0, 0, 16.9, 0x4a1a1a);
   [-1, 1].forEach((k) => cbx(0.12, 2.8, 0.16, k * 0.79, 0, 16.86, G));
   lprism(cirqArc(0.97, 0.56, 10), 0.1, 0, 2.8, 16.88, G);
@@ -9004,7 +9000,8 @@ function circleDoor() {
   // Interaction « Porte rouge » : le nom sert à l’indication de visée, et la fonction passée en dernier définit l’action. Destinations possibles, selon les conditions ci-dessous : rb.
   it(cbx(1.2, 2.2, 0.12, 0, 0, 16.82, C), "Porte rouge", () => {
     doorS();
-    go("rb", 0, 2.2, 0);
+    if(T.circusOrigin==="ruin") go("ruin",14.5,-29,Math.PI/2);
+    else { T.rb=null; go("rb",-1.6,-1.8,Math.atan2(-1.6,-4.7)); }
   });
 }
 
@@ -9370,7 +9367,7 @@ function dossier(i) {
 // ============================================================================
 // >>> CONNEX WORLD — magasin, arrière-boutique, cour, ville et maquette.
 // Les univers et les déclencheurs des dix fins principales sont conservés.
-const CITY_SPEC = {"lots":[{"id":"shop","name":"LE MAGASIN","x":0,"z":-6,"w":20,"d":24,"h":4.6,"color":14274751},{"id":"passage","name":"PASSAGE OUEST","x":-25,"z":-7,"w":10,"d":14,"h":9.4,"color":14206110},{"id":"colis","name":"QUAI DES COLIS","x":25,"z":-7,"w":10,"d":14,"h":6.6,"color":11843249},{"id":"archives","name":"ARCHIVES MUNICIPALES","x":25,"z":-21.5,"w":10,"d":8,"h":9.6,"color":14275007},{"id":"cafe","name":"CAFÉ DU COIN","x":-25,"z":23,"w":10,"d":10,"h":7.2,"color":14464666},{"id":"poste","name":"POSTE ÉLECTRIQUE","x":25,"z":23,"w":10,"d":10,"h":4.2,"color":12170925}],"markers":[{"id":"jardin","name":"Jardin des tilleuls","x":-26.7,"z":-26.55},{"id":"archives","name":"Archives municipales","x":19.6,"z":-24.6},{"id":"cafe","name":"Café du coin","x":-19.6,"z":19.3},{"id":"poste","name":"Poste électrique","x":19.6,"z":23}],"model":{"x":0,"z":25},"bounds":[-33,33,-35,35]}, WORLD_SIGN_CACHE = {};
+const CITY_SPEC = {"lots":[{"id":"shop","name":"LE MAGASIN","x":0,"z":-6,"w":20,"d":24,"h":4.6,"color":14274751},{"id":"passage","name":"GALERIE DES TILLEULS","x":-25,"z":-7,"w":10,"d":14,"h":9.4,"color":14206110},{"id":"colis","name":"ATELIER DU QUARTIER","x":25,"z":-7,"w":10,"d":14,"h":6.6,"color":11843249},{"id":"archives","name":"ARCHIVES MUNICIPALES","x":25,"z":-21.5,"w":10,"d":8,"h":9.6,"color":14275007},{"id":"cafe","name":"CAFÉ DU COIN","x":-25,"z":23,"w":10,"d":10,"h":7.2,"color":14464666},{"id":"poste","name":"POSTE ÉLECTRIQUE","x":25,"z":23,"w":10,"d":10,"h":4.2,"color":12170925}],"markers":[{"id":"jardin","name":"Jardin des tilleuls","x":-26.7,"z":-26.55},{"id":"archives","name":"Archives municipales","x":19.6,"z":-24.6},{"id":"cafe","name":"Café du coin","x":-19.6,"z":19.3},{"id":"poste","name":"Poste électrique","x":19.6,"z":23}],"model":{"x":0,"z":25},"bounds":[-33,33,-35,35]}, WORLD_SIGN_CACHE = {};
 
 /** État local à une tentative : aucun ancien identifiant de sauvegarde ne change. */
 function worldState() {
@@ -9846,7 +9843,7 @@ function worldBuilding(lot,mode="city") {
     bx(.06,3.3,2.9,fx+.03,0,z,0x4a3626);
     for(const k of [-1.62,1.62]) bx(.16,3.45,.35,fx+.08,0,z+k,0xcfc3a8);
     bx(.16,.42,3.6,fx+.08,3.3,z,0xcfc3a8);
-    worldSign(["PASSAGE DE L’OUEST"],fx+.165,3.51,z,3.1,.3,Math.PI/2,"stone");
+    worldSign(["GALERIE DES TILLEULS"],fx+.165,3.51,z,3.1,.3,Math.PI/2,"stone");
     worldWindows(f.e,f.e.u0,f.e.u1,[1.0],{w:1.1,h:1.6,bars:1,skip:u=>Math.abs(u-z)<2.6});
     worldWindows(f.e,f.e.u0,f.e.u1,[4.0,7.0],{shutter:0x77856c,w:1.1,h:1.6});
     for(const side of [f.n,f.s]) worldWindows(side,side.u0,side.u1,[1.0,4.0,7.0],{w:1,h:1.5,step:3,shutter:0x77856c});
@@ -9867,7 +9864,7 @@ function worldBuilding(lot,mode="city") {
     bx(1.4,.12,3.4,fx-.7,3.0,z,0x5d6163);
     for(const s of [-1.6,1.6]) bx(1.4,.08,.08,fx-.7,2.94,z+s,0x4d5153);
     bx(.05,.82,5.4,fx-.045,4.34,z,0x2f3132);
-    worldSign(["QUAI DES COLIS"],fx-.075,4.75,z,5.2,.72,-Math.PI/2,"white");
+    worldSign(["ATELIER DU QUARTIER"],fx-.075,4.75,z,5.2,.72,-Math.PI/2,"white");
     for(const [cx,cz] of [[x+1,z-3],[x+1,z+3]]) bx(1.3,.3,2.4,cx,h,cz,0xd6dcdc);
   } else if(id==="archives") {
     const fx=x-w/2;
@@ -9992,14 +9989,14 @@ function bWorldCity() {
   worldPlate("ACCÈS PERSONNEL",-2.6,1.75,-27.131,Math.PI,"white",.16);
   worldPlate(["SORTIE DE VÉHICULES","STATIONNEMENT INTERDIT"],4.4,1.45,-27.058,Math.PI,"white",.13);
   // Les accès d'origine restent les mêmes portes, avec leurs fonctions d'origine.
-  worldDoor("Petite porte du passage ouest",-19.87,-7,"x",0x5a4030,worldBranchDoor,{face:1,wall:-19.94,frame:null});
-  worldDoor("Entrée du quai des colis",19.87,-7,"x",0x8c908d,worldColisDoor,{face:-1,wall:19.94,frame:0x5d6163,title:"LIVRAISONS",handle:0x2a2b2c});
+  worldDoor("Entrée de la galerie",-19.87,-7,"x",0x5a4030,()=>{doorS();go("galerie",0,3.3,0);},{face:1,wall:-19.94,frame:null});
+  worldDoor("Entrée de l’atelier",19.87,-7,"x",0x8c908d,()=>{doorS();go("atelier",0,3.3,0);},{face:-1,wall:19.94,frame:0x5d6163,title:"ATELIER",handle:0x2a2b2c});
   // Pupitres d'information municipaux : plan du quartier et indice d'origine.
   const hints={
     jardin:"Le sous-sol se cache sous une dalle de la surveillance. Une première réponse n’est pas toujours la dernière.",
     archives:"Le bureau du directeur ne cède pas au premier refus. Une fois à l’intérieur, les dossiers donnent le code : aucun raccourci ne remplace cette énigme.",
     cafe:"Les étoiles changent le sol. Retiens sa couleur : une autre porte la demandera. Ici, le café et les promenades restent facultatifs.",
-    poste:"Si la boutique est plongée dans le noir, reprends la petite porte du passage ouest : elle mène alors vers les ruines. Le générateur conserve son parcours d’origine."
+    poste:"Si la boutique est plongée dans le noir, suis les flèches infrarouges jusqu’à la porte du personnel puis au local technique. Le générateur conserve son parcours d’origine."
   };
   for(const [i,q] of CITY_SPEC.markers.entries()) {
     const a=q.id==="jardin"?Math.PI:q.x>0?-Math.PI/2:Math.PI/2,sx=Math.round(Math.sin(a)),sz=Math.round(Math.cos(a)),along=sx===0;
@@ -10135,6 +10132,36 @@ function bWorldBack() {
   it(cbx(1.65,.9,.06,-3.6,1.18,8.75,0xb08657,{b:.015}),"Consignes du personnel",()=>panel("<h1>Avant l’ouverture</h1><p>Caisse et enseigne dans le magasin. Le carton se dépose sur la palette de la réserve, au fond à gauche du couloir. Léa prépare la vitrine, Karim les prix.</p><p>La cour donne sur la rue par le portail du fond. Pause, promenade en ville et maquette du quartier restent facultatives : seules les tâches comptent pour ouvrir.</p><button data-a='close'>Retour</button>"));
   worldSign([""],-3.6,1.63,8.714,1.6,.86,Math.PI,"paper",worldNoticePaint,"consignes");
   worldBackDetails();
+  if(T.bo && !T.pw) {
+    const trail=arrows([[0,7.7],[0,5.95],[2.6,5.95],[5.4,5.95],[5.4,3.7]]);
+    trail.userData.blackout=1;
+  }
+  return s;
+}
+
+/** Deux lieux du quartier distincts des pièces de l’entreprise. */
+function bWorldGallery() {
+  const s=mkS("galerie",rect(-3.65,3.65,-3.65,3.65),0xe1d7c6);
+  room(-4,4,-4,4,3.2,woodT,0xe8e1d2); L(0,2.6,0,0xffe5ba,.85,12);
+  worldDoor("Retour à la ville",0,3.9,"z",0x6b4d39,()=>{doorS();go("ville",-18.6,-7,-Math.PI/2);},{face:-1,wall:4,frame:0x493529,title:"SORTIE"});
+  for(const [x,color] of [[-2,0x69826b],[0,0xc29d70],[2,0x8293a0]]) {
+    bx(1.3,1.2,.1,x,1.0,-3.88,0x5d4834);
+    const m=it(cbx(1.1,1,.05,x,1.1,-3.81,color,{b:.01}),"Tableau de la galerie",()=>panel("<h1>Galerie des tilleuls</h1><p>Une vue du quartier : les rues, les arbres et les maisons d’avant.</p><button data-a='close'>Continuer</button>"));
+  }
+  shelf(-3.65,0,.4,2.6,1);
+  it(cbx(.65,.08,.45,-2, .76,1.2,0x805f46,{b:.02}),"Livre d’or de la galerie",()=>panel("<h1>Livre d’or</h1><p>« Merci de garder une place pour les souvenirs du quartier. »</p><button data-a='close'>Continuer</button>"));
+  cbx(1.4,.72,.75,-2,0,1.2,0x9d805e,{s:1,b:.02});
+  return s;
+}
+function bWorldWorkshop() {
+  const s=mkS("atelier",rect(-3.65,3.65,-3.65,3.65),0xd1d0c4);
+  room(-4,4,-4,4,3.2,tileT,0xc9c7ba);L(0,2.6,0,0xffe6bc,.85,12);
+  worldDoor("Retour à la ville",0,3.9,"z",0x6e7371,()=>{doorS();go("ville",18.6,-7,Math.PI/2);},{face:-1,wall:4,frame:0x4c5250,title:"SORTIE"});
+  cbx(2.4,.82,.7,0,0,-3.35,0x866a4d,{s:1,b:.02});
+  it(cbx(1.15,.28,.24,0,.84,-3.35,0x89908c,{b:.02}),"Établi de l’atelier",()=>panel("<h1>Établi</h1><p>Des outils pour entretenir les bancs et les jardinières du quartier.</p><button data-a='close'>Continuer</button>"));
+  shelf(-3.65,-.3,.4,2.8,1);
+  it(cbx(.9,.65,.08,3.88,1.15,-.3,0xb59a70,{b:.02}),"Planning de l’atelier",()=>panel("<h1>Planning de l’atelier</h1><p>Réparations de mobilier, entretien et petites livraisons du quartier.</p><button data-a='close'>Continuer</button>"));
+  shopCarton(.6,.45,.55,2.7,0,-2.9,0xb99569,{s:1});
   return s;
 }
 
@@ -10249,7 +10276,7 @@ function worldShopFinish() {
 
 /** Construit l’arrière-boutique, la cour, la ville et la maquette, puis branche leurs actions. */
 function bWorld() {
-  worldState();bWorldBack();bWorldCour();bWorldCity();bWorldModel();worldShopFinish();
+  worldState();bWorldBack();bWorldCour();bWorldCity();bWorldGallery();bWorldWorkshop();bWorldModel();worldShopFinish();
   ACT.worldMini=worldStartMini;ACT.worldFinish=worldFinishMini;
   worldRefreshMarkers();
 }
@@ -10776,8 +10803,8 @@ const CITY_PEOPLE = [
  ["Inès","Bonjour ! Je cherche un endroit tranquille pour lire.","Un endroit ?","Le jardin des tilleuls est plus calme que la place.","La place ?","Sous le kiosque, la maquette reproduit le quartier en miniature."],
  ["Sacha","Je passe souvent par cette place. La maquette m’intrigue toujours.","La maquette ?","Il y a quatre repères dans la ville. Leurs pupitres semblent liés aux épingles.","La ville ?","Café à l’ouest, poste électrique à l’est. Le magasin est au sud."],
  ["Émile","J’attends quelqu’un. Ou peut-être que je tourne juste en rond.","Tu attends qui ?","Je ne sais plus. C’est étrange comme les journées se ressemblent ici.","Les pigeons ?","Ils décollent dès qu’on s’approche. Ils ont au moins une destination."],
- ["Yasmine","Tu connais le passage ouest ? On y entend parfois un bruit de machine.","Le passage ?","La petite porte donne accès à un chemin particulier. Ce qui se passe dépend de la lumière.","Le quai ?","Il se trouve en face, de l’autre côté de la rue."],
- ["Hugo","Je rentre du café. Ils ont affiché les nouvelles du quartier.","Le café ?","Il est à l’ouest de la place ; l’enseigne est visible depuis le trottoir.","Des nouvelles ?","Pas grand-chose, sinon que les livraisons continuent au quai."],
+ ["Yasmine","Tu connais la galerie des tilleuls ? C’est un endroit tranquille.","La galerie ?","Elle se trouve à l’ouest de la rue et présente des souvenirs du quartier.","L’atelier ?","Il se trouve en face, de l’autre côté de la rue."],
+ ["Hugo","Je rentre du café. Ils ont affiché les nouvelles du quartier.","Le café ?","Il est à l’ouest de la place ; l’enseigne est visible depuis le trottoir.","Des nouvelles ?","L’atelier du quartier se trouve de l’autre côté de la rue."],
  ["Aïcha","Je prends un peu l’air avant de retourner à mes occupations.","Le poste ?","À l’est de la place. Il vaut mieux regarder les installations sans les déranger.","Une promenade ?","Le plan de la ville s’ouvre avec M, ou avec le bouton sur téléphone."],
  ["Louise","Je profite du banc et de l’ombre des tilleuls.","Le jardin ?","C’est le coin le plus calme du quartier. Le pupitre tout près indique un repère.","Une histoire ?","Je viens souvent ici, mais je ne me souviens pas depuis quand."],
  ["Raphaël","Je fais une pause à la terrasse avant de repartir.","La terrasse ?","Un peu de repos ne change rien aux tâches du magasin.","La maquette ?","Traverse vers le kiosque au centre de la place : tu la verras sous le toit."]
@@ -10796,7 +10823,7 @@ function worldCityActivities(){
     ["Arrêt de bus",-12.8,-14,0x3e615a,"Un arrêt de bus avec son panneau d’horaires.","Consulter les horaires","Le prochain passage est annoncé, sans heure précise.","Regarder l’itinéraire","La ligne dessert le jardin, le magasin et la place."],
     ["Tableau des archives",12.8,-14,0x806c50,"Un panneau d’informations près des archives.","Lire l’avis","Les plans du quartier sont conservés aux archives.","Lire la note","Certains dossiers méritent d’être examinés jusqu’au bout."],
     ["Borne de propreté",-12.8,-3,0x57705c,"Une petite borne de propreté sur le trottoir.","Lire la consigne","Merci de garder les rues propres.","Regarder autour","La rue relie le jardin à la place."],
-    ["Caisse de livraison",12.8,-3,0x94744e,"Une caisse posée près de la voie de livraison.","Lire l’étiquette","Destination : quai des colis. Le contenu n’est pas indiqué.","Écouter","Rien ne bouge à l’intérieur."],
+    ["Caisse de livraison",12.8,-3,0x94744e,"Une caisse posée près de la voie de livraison.","Lire l’étiquette","Destination : atelier du quartier. Le contenu n’est pas indiqué.","Écouter","Rien ne bouge à l’intérieur."],
     ["Affiche du café",-12.8,6,0x794b43,"Une affiche annonce le café du coin.","Voir la carte","Café, thé et pause tranquille : rien d’obligatoire.","Lire l’affiche","Le café se trouve à l’ouest de la place."],
     ["Panneau du marché",12.8,6,0xa18357,"Un panneau annonce les rendez-vous du quartier.","Lire le programme","Promenade sur la place et découverte de la maquette.","Lire le petit mot","« Merci de prendre le temps de regarder autour de vous. »"],
     ["Fontaine à eau",-8.6,15,0x899ea0,"Une petite fontaine publique.","Boire une gorgée","L’eau est fraîche. Une pause avant de repartir.","Écouter l’eau","Un filet d’eau couvre un instant le bruit de la rue."],
@@ -11079,8 +11106,8 @@ function worldMapPaint(k) {
     c.strokeRect(X(l.x - l.w / 2), Z(l.z - l.d / 2), X(l.w) - X(0), Z(l.d) - Z(0));
   }
   label("LE MAGASIN", 0, -6, "#4a3b2e");
-  label("PASSAGE\nOUEST", -25, -7, "#4a3b2e");
-  label("QUAI DES\nCOLIS", 25, -7, "#4a3b2e");
+  label("GALERIE\nDES TILLEULS", -25, -7, "#4a3b2e");
+  label("ATELIER\nDU QUARTIER", 25, -7, "#4a3b2e");
   label("ARCHIVES", 25, -21.5, "#4a3b2e");
   label("CAFÉ\nDU COIN", -25, 23, "#4a3b2e");
   label("POSTE", 25, 23, "#4a3b2e");
@@ -11241,14 +11268,14 @@ function worldOfficeDoor() {
       doorS();
       go("office", -3, 0, -Math.PI / 2);
 }
-/** Petite porte d’origine (vers rb ou ruin), désormais au local technique et au passage ouest. */
+/** Petite porte d’origine (vers rb ou ruin), désormais uniquement au local technique de l’entreprise. */
 function worldBranchDoor() {
   worldRemember("branch");
     say("Ça ? Un placard. Aucun intérêt. Mais bon, tu fais ce que tu veux. Visiblement.");
     doorS();
     T.bo && !T.pw ? go("ruin", 0, 0.8, 0) : go("rb", 0, 2.2, 0);
 }
-/** Couloir principal d’origine vers le quai des colis, désormais au quai de livraison et en ville. */
+/** Couloir principal d’origine vers le quai des colis, désormais uniquement au quai de livraison de l’entreprise. */
 function worldColisDoor() {
   worldRemember("colis");
     doorS();
@@ -11508,7 +11535,6 @@ function enter(n) {
     say(
       "Où es-tu ? Tu es dans le couloir ? Je ne te vois pas… Honnêtement, je n’ai aucune idée d’où tu es.",
     );
-    if (!T.pw) after(45, director);
   }
   if (n === "white") {
     T.fr = 1;
@@ -11598,6 +11624,16 @@ const endBtns = () =>
  * dix principales, applique certaines conséquences durables et déverrouille la conclusion
  * quand toutes les principales sont connues.
  */
+function mysteryEntrance(dest) {
+  if(SV.main.includes(fid(10))) {
+    if(dest.door2) T.d2=1;
+    go(dest.room,dest.x,dest.z,dest.yaw);
+  } else {
+    T.mysteryDest=dest;
+    end(10);
+  }
+}
+
 function end(n) {
   if (ui === "end") return;
   setUI("end");
@@ -11652,9 +11688,15 @@ function afterEnd() {
   const n = T.en;
   if (n === 7 && T.nb) {
     T.nb = 0;
-    return introFn(newAttempt);
+    return newAttempt();
   }
   resume();
+  if (n === 10 && T.mysteryDest) {
+    const dest=T.mysteryDest;delete T.mysteryDest;
+    if(dest.door2) T.d2=1;
+    go(dest.room,dest.x,dest.z,dest.yaw);
+    return;
+  }
   if (n === 2) {
     if (!T.fl8) say("Tu ne devais pas voir ça.", 5000);
     return;
@@ -11774,8 +11816,8 @@ const ACT = {
   close: resume,
   /** Reprend le jeu sans recommencer. */
   resume,
-  /** Démarre une nouvelle tentative, précédée de la cinématique, en gardant les fins. */
-  again: () => introFn(newAttempt),
+  /** Nouvelle tentative sans cinématique ; conserve les fins enregistrées. */
+  again: () => newAttempt(),
   /** Lance la conclusion. */
   final,
   /** Ouvre le registre des fins. */
@@ -11875,7 +11917,7 @@ ACT.rsty = () => {
 
 /**
  * Joue la cinématique d’introduction puis appelle la fonction go reçue en paramètre, même si
- * la vidéo est passée ou échoue. Elle précède chaque nouvelle tentative et se passe avec le
+ * la vidéo est passée ou échoue. Elle précède le début d’une partie et se passe avec le
  * bouton « Passer », Échap, Entrée ou Espace (pas pendant les 0,4 premières secondes, pour
  * éviter un saut involontaire). Pendant la vidéo le jeu est figé (ui = "intro") et la
  * musique, les effets et la voix du narrateur sont coupés, puis rétablis par setV(). Le
@@ -11941,13 +11983,34 @@ function introFn(go) {
 
 /**
  * Réagit au bouton Jouer : initialise le son, cache l’accueil et lance la cinématique
- * d’introduction, puis une nouvelle tentative. La cinématique est jouée à chaque fois.
+ * d’introduction, puis le tutoriel et la première tentative.
  */
 function launch() {
   initA();
   $("home").style.display = "none";
-  introFn(newAttempt);
+  introFn(() => { newAttempt(); tutorialShow(0); });
 }
+
+/** Tutoriel de début de partie : instructions facultatives, jamais rejouées en nouvelle tentative. */
+const TUTORIAL = [
+  ["Se déplacer et interagir", "Sur ordinateur : ZQSD ou WASD pour marcher, souris pour regarder, E pour agir. Si la souris n’est pas capturée, clique puis fais glisser. Sur téléphone : joystick à gauche, glisse à droite pour regarder et touche E pour agir. Vise un objet ou une personne jusqu’à voir son nom."],
+  ["Allumer la caisse", "Approche-toi du comptoir, vise la caisse et utilise E. La liste en haut de l’écran se coche à mesure que tu avances."],
+  ["Ranger le carton", "Vise le carton dans le magasin et prends-le. Passe par la porte Réservé au personnel, traverse le couloir jusqu’à la réserve, puis vise la palette pour le déposer."],
+  ["Allumer l’enseigne", "Dans le magasin, vise l’interrupteur près de la porte d’entrée et utilise E."],
+  ["Préparer la vitrine et les prix", "Parle à Léa pour choisir la vitrine et à Karim pour les prix. Valide tes choix et laisse-leur le temps de travailler."],
+  ["Ouvrir le magasin", "Quand les cinq tâches sont cochées, vise la porte d’entrée et utilise E pour ouvrir. Le menu pause donne accès au registre des fins et à une nouvelle tentative."]
+];
+function tutorialShow(i) {
+  const q=TUTORIAL[i];
+  panel("<h1>Premiers pas · "+(i+1)+"/"+TUTORIAL.length+"</h1><h2>"+q[0]+"</h2><p>"+q[1]+"</p>"+
+    (i?"<button data-a='tutPrev'>Précédent</button>":"")+
+    (i<TUTORIAL.length-1?"<button data-a='tutNext'>Suivant</button>":"<button data-a='tutDone'>Commencer</button>")+
+    "<button data-a='tutDone'>Passer le tutoriel</button>");
+  T.tutorialStep=i;
+}
+ACT.tutPrev=()=>tutorialShow(Math.max(0,T.tutorialStep-1));
+ACT.tutNext=()=>tutorialShow(Math.min(TUTORIAL.length-1,T.tutorialStep+1));
+ACT.tutDone=()=>{delete T.tutorialStep;resume();};
 
 /** ACT.rstgo — Redémarre via le même parcours que le bouton Jouer. */
 ACT.rstgo = launch;
@@ -11956,16 +12019,23 @@ ACT.rstgo = launch;
 ACT.plan = () => {
   resume();
   T.pl = 1;
-  after(2, director);
+  director();
 };
+/** Le directeur pourra revenir au plan tant que les deux issues ne sont pas acquises. */
+function clearDirector() {
+  if(DIR && DIR.parent) DIR.parent.remove(DIR);
+  DIR=null;T.dir=0;
+}
 /** ACT.dem — Valide le choix Démissionner et lance la salle white. */
 ACT.dem = () => {
   resume();
+  clearDirector();
   go("white", 0, 0, 0);
 };
 /** ACT.fuir — Valide le choix S’enfuir et lance le couloir collapse. */
 ACT.fuir = () => {
   resume();
+  clearDirector();
   go("collapse", 0, 3, 0);
 };
 
