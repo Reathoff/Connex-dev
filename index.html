@@ -978,7 +978,35 @@ if (!CL.some((c) => c[0] === SV.target)) SV.target = null;
  * Réglages sonores de la session : mus = volume musique, sfx = volume effets/voix, tts =
  * lecture vocale. Ces réglages ne sont pas écrits dans SV par save().
  */
-const cfg = { mus: 0.7, sfx: 0.8, tts: true };
+const defaultCfg = () => ({ mus: 0.7, sfx: 0.8, tts: true, mouse: 1, touch: 1 });
+const defaultBindings = () => ({
+  forward:["w","z","arrowup"], back:["s","arrowdown"], left:["a","q"], right:["d"],
+  lookLeft:["arrowleft"], lookRight:["arrowright"], interact:["e"," "],
+  lamp:["f"], map:["m"], pause:["escape"], run:["shift"]
+});
+const bindNames = {forward:"Avancer", back:"Reculer", left:"Aller à gauche", right:"Aller à droite", lookLeft:"Regarder à gauche", lookRight:"Regarder à droite", interact:"Interagir", lamp:"Lampe", map:"Plan", pause:"Pause", run:"Courir"};
+const cfg = defaultCfg(), bindings = defaultBindings();
+let bindingCapture = null, optionsFrom = "home", optionsError = "", optionsStorage = true;
+const validBindingKey = k => typeof k === "string" && (/^[a-z0-9]$/.test(k) || [" ","escape","enter","shift","arrowup","arrowdown","arrowleft","arrowright"].includes(k));
+try {
+  const o = JSON.parse(localStorage.getItem("avo1.options.v1") || "null");
+  if (o && typeof o === "object") {
+    for (const k of ["mus","sfx"]) if (Number.isFinite(o[k]) && o[k]>=0 && o[k]<=1) cfg[k]=o[k];
+    for (const k of ["mouse","touch"]) if (Number.isFinite(o[k]) && o[k]>=0.25 && o[k]<=3) cfg[k]=o[k];
+    if (typeof o.tts === "boolean") cfg.tts=o.tts;
+    // Accepte uniquement une configuration complète, sans doublon ni touche inconnue.
+    if (o.bindings && Object.keys(bindings).every(k => Array.isArray(o.bindings[k]) && o.bindings[k].length && o.bindings[k].every(validBindingKey))) {
+      const all = Object.keys(bindings).flatMap(k => o.bindings[k]);
+      if (new Set(all).size === all.length) for (const k of Object.keys(bindings)) bindings[k]=o.bindings[k].slice();
+    }
+  }
+} catch(e) { /* Options par défaut si les données sont illisibles. */ }
+function persistOptions() {
+  try { localStorage.setItem("avo1.options.v1", JSON.stringify({...cfg,bindings})); }
+  catch(e) { optionsStorage = false; }
+}
+const keyDownFor = action => bindings[action].some(k => !!keys[k]);
+let attemptEpoch = 0;
 
 // ============================================================================
 // 03 · ÉTAT DE LA TENTATIVE
@@ -10283,7 +10311,7 @@ function worldUpd(dt) {
   worldLifeUpd(dt);
   if(CN==="back" && w.coffee===1) {w.coffeeTime+=dt;if(w.coffeeTime>=3){w.coffee=2;say("Le café est prêt. Tu peux prendre la tasse.");}}
   if(s&&s.coffeeFlow){s.coffeeFlow.visible=w.coffee===1;s.coffeeCup.visible=w.coffee<3;s.coffeeLiquid.visible=w.coffee===2;}
-  const names={back:"Arrière-boutique",cour:"Cour du magasin",ville:"Ville · "+Object.keys(w.seen).length+"/4 repères"+(TOUCH?"":" · M : plan"),maquette:"Maquette du quartier"};
+  const names={back:"Arrière-boutique",cour:"Cour du magasin",ville:"Ville · "+Object.keys(w.seen).length+"/4 repères"+(TOUCH?"":" · " + displayKey(bindings.map[0]) + " : plan"),maquette:"Maquette du quartier"};
   const hud=$("worldloc");if(hud){hud.textContent=names[CN]||"";hud.hidden=!names[CN]||ui!=="play";}
   if(!T.cityCine)return false;
   const c=T.cityCine;c.t+=dt;const reduced=matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -11105,7 +11133,7 @@ function worldStepK() {
 
 /** Vitesse de marche relative : Maj fait courir dehors et dans l’arrière-boutique (jamais dans les autres salles). */
 function worldRun() {
-  return keys.shift && !T.cityCine && ["back", "cour", "ville"].includes(CN) ? 1.55 : 1;
+  return keyDownFor("run") && !T.cityCine && ["back", "cour", "ville"].includes(CN) ? 1.55 : 1;
 }
 
 /** Peint le plan du quartier sur le canvas k : rues, bâtiments, repères relevés, joueur et sens de marche. */
@@ -11538,7 +11566,9 @@ function go(n, x, z, y) {
   busy = 1;
   for (const k in keys) keys[k] = 0;
   $("fade").style.opacity = 1;
+  const epoch = attemptEpoch;
   setTimeout(() => {
+    if (epoch !== attemptEpoch) return;
     if (n === "shop") fixShop();
     set(n, x, z, y);
     $("fade").style.opacity = 0;
@@ -11604,6 +11634,7 @@ function enter(n) {
  * décor. Conserve SV : les fins déjà découvertes et leurs conséquences restent acquises.
  */
 function newAttempt() {
+  attemptEpoch++;
   T = {
     tasks: {},
     t: 0,
@@ -11829,14 +11860,10 @@ let regFrom = "menu";
  * renvoie du texte ; menu() s’occupe de l’afficher et d’arrêter les commandes.
  */
 const menuH = () =>
-  '<h1 style="font-size:30px">Pause</h1><button data-a="resume">Reprendre</button>' + fullscreenControls() + '<button data-a="reg">Registre des fins</button><label>Musique <input type="range" min="0" max="1" step=".05" value="' +
-  cfg.mus +
-  '" data-r="mus"></label><label>Effets <input type="range" min="0" max="1" step=".05" value="' +
-  cfg.sfx +
-  '" data-r="sfx"></label><button data-a="tts">Voix parlée : ' +
-  (cfg.tts ? "oui" : "non") +
-  '</button><button data-a="again">Nouvelle tentative</button>' +
-  boBtn() +
+  '<h1 style="font-size:30px">Pause</h1><button data-a="resume">Reprendre</button>' +
+  '<button data-a="options">Options</button><button data-a="reg">Registre des fins</button>' +
+  '<button data-a="again">Nouvelle tentative</button>' + boBtn() +
+  '<button data-a="homeConfirm">Menu principal</button>' +
   '<p>Sauvegarde active : emplacement ' + activeSlot + ' / 6</p><button data-a="rst">Réinitialiser cet emplacement</button>';
 
 /**
@@ -11883,6 +11910,51 @@ const ACT = {
     }
   },
 };
+
+/** Retour à l’accueil : les fins sont déjà sauvegardées, mais pas la tentative. */
+ACT.homeConfirm = () => ov("<h1>Retour au menu principal ?</h1><p>Les fins et la progression enregistrée restent dans cet emplacement. La position, les tâches et les repères de cette tentative seront perdus.</p><button data-a='homeGo'>Retourner au menu principal</button><button data-a='homeCancel'>Annuler</button>");
+ACT.homeCancel = () => ov(menuH());
+ACT.homeGo = () => {
+  attemptEpoch++; // neutralise aussi une transition différée éventuellement en cours
+  busy = 0; Q = []; T = {tasks:{}, t:0}; silent = false; finalM = false;
+  setUI("home"); hideOv();
+  $("fade").style.opacity = 0; $("cine").style.display = "none";
+  $("fb").style.display = "none"; $("sub").style.opacity = 0; clearTimeout(subT);
+  if (window.speechSynthesis) speechSynthesis.cancel();
+  SPOT.visible = false; setDark(false); set("shop", 0, 4, 0);
+  updateSlotHome(); $("home").style.display = "flex";
+};
+
+/** Options communes aux deux menus, locales au navigateur et distinctes des profils. */
+function optionsPanel() {
+  bindingCapture = null;
+  let h = "<h1>Options</h1><p>Réglages communs aux six sauvegardes, dans ce navigateur.</p>" + fullscreenControls();
+  h += "<label>Musique <input aria-label='Musique' type='range' min='0' max='1' step='.05' value='"+cfg.mus+"' data-opt='mus'></label>";
+  h += "<label>Effets et voix <input aria-label='Effets et voix' type='range' min='0' max='1' step='.05' value='"+cfg.sfx+"' data-opt='sfx'></label>";
+  h += "<button data-a='optVoice'>Voix parlée : "+(cfg.tts?"oui":"non")+"</button>";
+  h += "<label>Sensibilité souris <input aria-label='Sensibilité souris' type='range' min='.25' max='3' step='.25' value='"+cfg.mouse+"' data-opt='mouse'></label>";
+  h += "<label>Sensibilité tactile <input aria-label='Sensibilité tactile' type='range' min='.25' max='3' step='.25' value='"+cfg.touch+"' data-opt='touch'></label>";
+  if (!optionsStorage) h += "<p>Le stockage est indisponible : les options ne seront pas conservées.</p>";
+  ov(h + "<button data-a='optKeys'>Configurer les touches</button><button data-a='optReset'>Rétablir les réglages par défaut</button><button data-a='optBack'>Retour</button>");
+}
+function displayKey(k) {
+  return ({" ":"Espace",escape:"Échap",enter:"Entrée",shift:"Maj",arrowup:"↑",arrowdown:"↓",arrowleft:"←",arrowright:"→"})[k] || k.toUpperCase();
+}
+function keysPanel() {
+  let h = "<h1>Touches</h1><p>Choisis une action puis appuie sur sa nouvelle touche. La touche remplace les raccourcis de cette action. Les touches déjà utilisées sont refusées.</p>";
+  if (optionsError) h += "<p role='status'>" + optionsError + "</p>";
+  if (bindingCapture) h += "<p role='status'>Appuie sur la touche souhaitée pour « " + bindNames[bindingCapture] + " ».</p>";
+  for (const name of Object.keys(bindNames)) h += "<button data-a='optBind' data-c='" + name + "'>" + bindNames[name] + " : " + bindings[name].map(displayKey).join(" / ") + "</button>";
+  ov(h + "<button data-a='optKeysReset'>Rétablir les touches par défaut</button><button data-a='optKeysBack'>Retour aux options</button>");
+}
+ACT.options = () => { optionsFrom = ui === "home" ? "home" : "menu"; optionsError=""; optionsPanel(); };
+ACT.optVoice = () => {cfg.tts=!cfg.tts; if(!cfg.tts && window.speechSynthesis) speechSynthesis.cancel(); persistOptions(); optionsPanel();};
+ACT.optKeys = () => {optionsError=""; keysPanel();};
+ACT.optBind = name => {if (!(name in bindNames)) return; bindingCapture=name; optionsError=""; keysPanel();};
+ACT.optKeysBack = () => {bindingCapture=null; optionsError=""; optionsPanel();};
+ACT.optKeysReset = () => {Object.assign(bindings,defaultBindings());bindingCapture=null;optionsError="";persistOptions();keysPanel();};
+ACT.optReset = () => {Object.assign(cfg,defaultCfg());Object.assign(bindings,defaultBindings());persistOptions();setV();optionsPanel();};
+ACT.optBack = () => {bindingCapture=null; optionsFrom === "home" ? hideOv() : ov(menuH());};
 
 /** ACT.back — Revient du registre au bon panneau. */
 ACT.back = () => {
@@ -12021,7 +12093,7 @@ function launch() {
 
 /** Tutoriel de début de partie : instructions facultatives, jamais rejouées en nouvelle tentative. */
 const TUTORIAL = [
-  ["Se déplacer et interagir", "Sur ordinateur : ZQSD ou WASD pour marcher, souris pour regarder, E pour agir. Si la souris n’est pas capturée, clique puis fais glisser. Sur téléphone : joystick à gauche, glisse à droite pour regarder et touche E pour agir. Vise un objet ou une personne jusqu’à voir son nom."],
+  ["Se déplacer et interagir", "Par défaut sur ordinateur : ZQSD ou WASD pour marcher, souris pour regarder, E pour agir. Tu peux changer les touches dans Options. Si la souris n’est pas capturée, clique puis fais glisser. Sur téléphone : joystick à gauche, glisse à droite pour regarder et touche E pour agir. Vise un objet ou une personne jusqu’à voir son nom."],
   ["Allumer la caisse", "Approche-toi du comptoir, vise la caisse et utilise E. La liste en haut de l’écran se coche à mesure que tu avances."],
   ["Ranger le carton", "Vise le carton dans le magasin et prends-le. Passe par la porte Réservé au personnel, traverse le couloir jusqu’à la réserve, puis vise la palette pour le déposer."],
   ["Allumer l’enseigne", "Dans le magasin, vise l’interrupteur près de la porte d’entrée et utilise E."],
@@ -12090,10 +12162,10 @@ $("pan").onclick = (e) => {
 
 /** Les curseurs data-r modifient cfg puis les volumes audio. */
 $("pan").oninput = (e) => {
-  const r = e.target.dataset.r;
-  if (r) {
-    cfg[r] = +e.target.value;
-    setV();
+  const r = e.target.dataset.opt;
+  if (["mus","sfx","mouse","touch"].includes(r)) {
+    const v = Number(e.target.value), min = r === "mus" || r === "sfx" ? 0 : .25, max = r === "mus" || r === "sfx" ? 1 : 3;
+    if (Number.isFinite(v) && v >= min && v <= max) { cfg[r] = v; persistOptions(); setV(); }
   }
 };
 
@@ -12140,6 +12212,10 @@ const slotButton = document.createElement("button");
 slotButton.id = "hslots"; slotButton.onclick = showSlots;
 $("play").insertAdjacentElement("afterend", slotButton);
 $("hrst").textContent = "Réinitialiser cet emplacement";
+const homeOptions = document.createElement("button");
+homeOptions.id = "hoptions"; homeOptions.textContent = "Options"; homeOptions.onclick = ACT.options;
+const homeHelp = document.querySelector("#home .help"); if (homeHelp) homeHelp.prepend("Commandes par défaut, modifiables dans Options. ");
+$("hslots").insertAdjacentElement("afterend", homeOptions);
 updateSlotHome();
 if (!slotStorage) saveWarning();
 
@@ -12705,24 +12781,27 @@ const kk = (e) => {
  * E/Espace/F une seule fois et ouvre la pause avec Échap lorsqu’un appui est reçu.
  */
 addEventListener("keydown", (e) => {
-  if (ui === "panel" && e.key === "Enter" && $("cd")) return ACT.code();
   const k = kk(e);
-  if (!k) return;
-  if (ui === "play") {
-    if (k === " " || k.startsWith("arrow")) e.preventDefault();
-    if (k === "escape") {
-      menu();
-      return;
-    }
+  if (bindingCapture) {
+    e.preventDefault(); e.stopPropagation();
+    if (!k || !validBindingKey(k)) { optionsError="Touche non prise en charge. Choisis une lettre, un chiffre, une flèche, Échap, Entrée, Espace ou Maj."; keysPanel(); return; }
+    const conflict=Object.keys(bindings).find(name => name !== bindingCapture && bindings[name].includes(k));
+    if (conflict) { optionsError="Cette touche est déjà utilisée pour « "+bindNames[conflict]+" ». Choisis une autre touche."; keysPanel(); return; }
+    bindings[bindingCapture]=[k]; bindingCapture=null; optionsError="Touche enregistrée."; persistOptions(); keysPanel(); return;
   }
+  if (ui === "panel" && e.key === "Enter" && $("cd")) return ACT.code();
+  if (!k) return;
+  if (ui === "panel" && $("wmap") && bindings.map.includes(k) && !e.repeat) {e.preventDefault(); resume(); return;}
+  if (ui !== "play") return;
+  if (k === " " || k.startsWith("arrow")) e.preventDefault();
+  if (bindings.pause.includes(k)) { if(!e.repeat) menu(); return; }
   keys[k] = 1;
   if (!e.repeat) {
-    if (k === "e" || k === " ") use();
-    if (k === "f") togIR();
-    if (k === "m") ui === "panel" && $("wmap") ? resume() : worldMap();
+    if (bindings.interact.includes(k)) use();
+    if (bindings.lamp.includes(k)) togIR();
+    if (bindings.map.includes(k)) worldMap();
   }
 });
-
 /** Relâchement clavier : libère la touche mémorisée pour arrêter le mouvement. */
 addEventListener("keyup", (e) => {
   const k = kk(e);
@@ -12785,8 +12864,8 @@ addEventListener("mousemove", (e) => {
     const dx = e.movementX || 0,
       dy = e.movementY || 0;
     if (Math.abs(dx) > 250 || Math.abs(dy) > 250) return;
-    my += dx * 0.0022;
-    mp += dy * 0.0022;
+    my += dx * 0.0022 * cfg.mouse;
+    mp += dy * 0.0022 * cfg.mouse;
     if (drag) dmv += Math.abs(dx) + Math.abs(dy);
   }
 });
@@ -12895,8 +12974,8 @@ cv.addEventListener(
         const dx = t.clientX - o[2],
           dy = t.clientY - o[3];
         o[5] += Math.abs(dx) + Math.abs(dy);
-        yaw -= dx * 0.006;
-        pit = Math.max(-1.3, Math.min(1.3, pit - dy * 0.006));
+        yaw -= dx * 0.006 * cfg.touch;
+        pit = Math.max(-1.3, Math.min(1.3, pit - dy * 0.006 * cfg.touch));
         o[2] = t.clientX;
         o[3] = t.clientY;
       }
@@ -13126,8 +13205,8 @@ function upd(dt) {
   }
 
   // Déplacements ordinaires : combine clavier et tactile, adoucit les changements de direction puis normalise la diagonale pour ne pas marcher plus vite en biais.
-  let f = (keys.w || keys.z || keys.arrowup ? 1 : 0) - (keys.s || keys.arrowdown ? 1 : 0) - mv.y,
-    r = (keys.d ? 1 : 0) - (keys.a || keys.q ? 1 : 0) + mv.x;
+  let f = (keyDownFor("forward") ? 1 : 0) - (keyDownFor("back") ? 1 : 0) - mv.y,
+    r = (keyDownFor("right") ? 1 : 0) - (keyDownFor("left") ? 1 : 0) + mv.x;
   SM.f += (f - SM.f) * Math.min(1, dt * 10);
   SM.r += (r - SM.r) * Math.min(1, dt * 10);
   f = SM.f;
@@ -13264,7 +13343,7 @@ function loop() {
     pit = 0.02;
   }
   if (ui === "play" && !T.cine)
-    yaw += ((keys.arrowleft ? 1 : 0) - (keys.arrowright ? 1 : 0)) * dt * 2.2;
+    yaw += ((keyDownFor("lookLeft") ? 1 : 0) - (keyDownFor("lookRight") ? 1 : 0)) * dt * 2.2;
   {
     const q = 1 - Math.exp(-dt * 28);
     yaw -= my * q;
