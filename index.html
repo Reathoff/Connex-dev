@@ -886,42 +886,76 @@ NM.B2 = "La ville dans la ville";
  */
 const fid = (n) => /^B\d+$/.test(String(n)) ? "FIN-B" + String(n).slice(1).padStart(3, "0") : "FIN-" + String(n).padStart(3, "0");
 
-/**
- * SV = sauvegarde durable du navigateur. main/bonus : fins découvertes ; star/target :
- * couleur du damier ; bo : panne au prochain essai ; gone : PNJ disparus. v2 et labExit
- * sont ajoutés plus loin. À distinguer de T, limité à une tentative.
- */
-let SV = { main: [], bonus: [], star: null, target: null, bo: false, gone: false };
-
-/**
- * Lecture de la sauvegarde existante. JSON.parse transforme le texte stocké en objet ;
- * Object.assign reprend ses champs. Un stockage refusé ou illisible laisse les valeurs par
- * défaut.
- */
-try {
-  Object.assign(SV, JSON.parse(localStorage.getItem("avo1") || "{}"));
-} catch (e) {}
-
-/**
- * Migration des anciennes sauvegardes vers la version logique 3. v2 est le nom historique
- * du champ ; sa valeur actuelle est 3, indépendamment du titre HTML qui conserve V2.
- */
-if (SV.v2 !== 3) {
-  SV.v2 = 3;
-  delete SV.day;
-  delete SV.loop;
-  if (SV.main.includes("FIN-008")) SV.bo = false;
+/** Six profils indépendants. Une tentative (T) reste temporaire : seules les fins et
+ * conséquences narratives (SV) sont sauvegardées. La reprise repart à la boutique. */
+const SLOT_PREFIX = "avo1.slot.", SLOT_ACTIVE = "avo1.active", SLOT_MIGRATED = "avo1.slots.migrated";
+const emptyProgress = () => ({ main: [], bonus: [], star: null, target: null, bo: false, gone: false, v2: 3 });
+function validProgress(v) {
+  return !!v && typeof v === "object" && !Array.isArray(v) &&
+    (v.main === undefined || Array.isArray(v.main)) && (v.bonus === undefined || Array.isArray(v.bonus));
 }
-
-/**
- * Écrit SV en JSON sous la clé locale avo1. Le try/catch laisse le jeu fonctionner si le
- * navigateur interdit le stockage ; dans ce cas, la progression ne persiste pas après
- * fermeture.
- */
+function normalizeProgress(v) {
+  const out = Object.assign(emptyProgress(), v);
+  if (out.v2 !== 3) {
+    out.v2 = 3; delete out.day; delete out.loop;
+    if (out.main.includes("FIN-008")) out.bo = false;
+  }
+  return out;
+}
+let slotStorage = true, activeSlot = 1, slotStarted = false;
+const slots = Array(6).fill(null);
+try {
+  const selected = Number(localStorage.getItem(SLOT_ACTIVE));
+  if (Number.isInteger(selected) && selected >= 1 && selected <= 6) activeSlot = selected;
+  for (let n = 1; n <= 6; n++) {
+    const raw = localStorage.getItem(SLOT_PREFIX + n);
+    if (raw !== null) {
+      try {
+        const r = JSON.parse(raw);
+        slots[n - 1] = r && r.version === 1 && validProgress(r.progress) ? r : { corrupt: true };
+      } catch (e) { slots[n - 1] = { corrupt: true }; }
+    }
+  }
+  // Copier une seule fois l’ancienne sauvegarde, sans jamais l’effacer. Ne pas
+  // écraser un profil 1 déjà occupé, même si les anciennes données sont illisibles.
+  if (!localStorage.getItem(SLOT_MIGRATED)) {
+    const legacy = localStorage.getItem("avo1");
+    if (legacy !== null && !slots[0]) {
+      let parsed;
+      try { parsed = JSON.parse(legacy); } catch (e) { parsed = null; }
+      if (validProgress(parsed)) {
+        slots[0] = { version: 1, started: true, progress: normalizeProgress(parsed), updated: new Date().toISOString() };
+        try { localStorage.setItem(SLOT_PREFIX + "1", JSON.stringify(slots[0])); }
+        catch (e) { slotStorage = false; }
+      } else slots[0] = { corrupt: true };
+    }
+    if (!slots[0] || !slots[0].corrupt) localStorage.setItem(SLOT_MIGRATED, "1");
+  }
+  const probe = SLOT_PREFIX + "probe";
+  localStorage.setItem(probe, "1"); localStorage.removeItem(probe);
+} catch (e) { slotStorage = false; }
+let SV = slots[activeSlot - 1] && !slots[activeSlot - 1].corrupt
+  ? normalizeProgress(slots[activeSlot - 1].progress) : emptyProgress();
+slotStarted = !!(slots[activeSlot - 1] && slots[activeSlot - 1].started);
+function saveWarning() {
+  let el = document.getElementById("save-warning");
+  if (!el) {
+    el = document.createElement("div"); el.id = "save-warning"; el.setAttribute("role", "alert");
+    el.style.cssText = "position:fixed;z-index:40;top:0;left:0;right:0;padding:8px;background:#7c241e;color:white;text-align:center;font:14px sans-serif";
+    document.body.appendChild(el);
+  }
+  el.textContent = "Sauvegarde indisponible : la progression ne sera pas conservée après fermeture.";
+}
+/** Sauvegarde automatique dans le profil actif ; n’écrase jamais une entrée illisible. */
 const save = () => {
-  try {
-    localStorage.setItem("avo1", JSON.stringify(SV));
-  } catch (e) {}
+  if (slots[activeSlot - 1] && slots[activeSlot - 1].corrupt) return;
+  const record = { version: 1, started: slotStarted, progress: JSON.parse(JSON.stringify(SV)), updated: new Date().toISOString() };
+  slots[activeSlot - 1] = record;
+  if (slotStorage) {
+    try { localStorage.setItem(SLOT_PREFIX + activeSlot, JSON.stringify(record)); }
+    catch (e) { slotStorage = false; }
+  }
+  if (!slotStorage) saveWarning();
 };
 
 /**
@@ -11803,7 +11837,7 @@ const menuH = () =>
   (cfg.tts ? "oui" : "non") +
   '</button><button data-a="again">Nouvelle tentative</button>' +
   boBtn() +
-  '<button data-a="rst">Réinitialiser le jeu</button>';
+  '<p>Sauvegarde active : emplacement ' + activeSlot + ' / 6</p><button data-a="rst">Réinitialiser cet emplacement</button>';
 
 /**
  * Table de correspondance entre un nom data-a dans le HTML et une fonction JavaScript.
@@ -11890,29 +11924,17 @@ let rFrom = "home";
 /** ACT.rst — Demande confirmation avant de remettre toute la progression à zéro. */
 ACT.rst = () => {
   rFrom = ui;
-  ov(
-    "<h1 style='font-size:28px'>Tout réinitialiser ?</h1><p>Le registre des fins sera remis à zéro et toute la progression sera effacée.</p><button data-a='rsty'>Oui, tout effacer</button><button data-a='rstn'>Annuler</button>",
-  );
+  if (slots[activeSlot - 1] && slots[activeSlot - 1].corrupt) {
+    ov("<h1>Sauvegarde illisible</h1><p>Cet emplacement est protégé contre l’écrasement. Choisis un autre emplacement.</p><button data-a='rstn'>Retour</button>");
+    return;
+  }
+  ov("<h1 style='font-size:28px'>Réinitialiser l’emplacement " + activeSlot + " ?</h1><p>Ses fins et sa progression seront effacées. Les cinq autres emplacements ne seront pas modifiés.</p><button data-a='rsty'>Oui, effacer cet emplacement</button><button data-a='rstn'>Annuler</button>");
 };
-
-/** ACT.rstn — Annule la remise à zéro et revient à l’écran de départ. */
 ACT.rstn = () => (rFrom === "home" ? hideOv() : ov(menuH()));
-
-/**
- * ACT.rsty — Efface explicitement la sauvegarde et les drapeaux narratifs, après
- * confirmation du joueur.
- */
 ACT.rsty = () => {
-  SV = { main: [], bonus: [], star: null, target: null, bo: false, gone: false, v2: 3 };
-  try {
-    localStorage.removeItem("avo1");
-  } catch (e) {}
-  save();
-  finalM = false;
-  silent = false;
-  ov(
-    "<h1 style='font-size:28px'>Jeu réinitialisé</h1><p>Le registre des fins est vide.</p><button data-a='rstgo'>Recommencer</button>",
-  );
+  SV = emptyProgress(); slotStarted = false; save();
+  finalM = false; silent = false;
+  ov("<h1 style='font-size:28px'>Emplacement réinitialisé</h1><p>Les autres sauvegardes sont intactes.</p><button data-a='rstgo'>Recommencer</button>");
 };
 
 /**
@@ -11986,9 +12008,15 @@ function introFn(go) {
  * d’introduction, puis le tutoriel et la première tentative.
  */
 function launch() {
+  if (slots[activeSlot - 1] && slots[activeSlot - 1].corrupt) {
+    ov("<h1>Sauvegarde illisible</h1><p>Elle n’a pas été écrasée. Choisis un autre emplacement.</p><button data-a='hback'>Retour</button>"); return;
+  }
+  const returning = slotStarted;
+  slotStarted = true; save();
   initA();
   $("home").style.display = "none";
-  introFn(() => { newAttempt(); tutorialShow(0); });
+  if (returning) newAttempt();
+  else introFn(() => { newAttempt(); tutorialShow(0); });
 }
 
 /** Tutoriel de début de partie : instructions facultatives, jamais rejouées en nouvelle tentative. */
@@ -12078,6 +12106,42 @@ function menu() {
   setUI("menu");
   ov(menuH());
 }
+
+/** Choix d’un profil depuis l’accueil uniquement : changer de profil ne détruit
+ * jamais la tentative d’un autre profil en cours. */
+function slotLabel(n) {
+  const r = slots[n - 1];
+  if (!r) return "Vide — nouvelle partie";
+  if (r.corrupt) return "Illisible — protégé";
+  if (!r.started) return "Vide — nouvelle partie";
+  const progress = normalizeProgress(r.progress);
+  return progress.main.length + "/10 fins · " + progress.bonus.length + "/2 bonus";
+}
+function showSlots() {
+  let h = "<h1>Sauvegardes</h1><p>Six emplacements indépendants. La reprise commence une nouvelle tentative à la boutique : la position et les tâches en cours ne sont pas enregistrées.</p>";
+  if (!slotStorage) h += "<p>Attention : le stockage est indisponible ; rien ne sera conservé après fermeture.</p>";
+  for (let n = 1; n <= 6; n++)
+    h += "<button data-a='slotPick' data-c='" + n + "'" + (slots[n - 1] && slots[n - 1].corrupt ? " disabled" : "") + ">" + (n === activeSlot ? "✓ " : "") + "Emplacement " + n + " — " + slotLabel(n) + "</button>";
+  ov(h + "<button data-a='hback'>Retour</button>");
+}
+ACT.slotPick = value => {
+  const n = Number(value), r = slots[n - 1];
+  if (!Number.isInteger(n) || n < 1 || n > 6 || (r && r.corrupt)) return;
+  activeSlot = n; SV = r ? normalizeProgress(r.progress) : emptyProgress(); slotStarted = !!(r && r.started);
+  if (!CL.some(c => c[0] === SV.star)) SV.star = null;
+  if (!CL.some(c => c[0] === SV.target)) SV.target = null;
+  if (slotStorage) { try { localStorage.setItem(SLOT_ACTIVE, String(n)); } catch(e) { slotStorage = false; saveWarning(); } }
+  updateSlotHome(); hideOv();
+};
+function updateSlotHome() {
+  $("hslots").textContent = "Sauvegardes : emplacement " + activeSlot + " / 6";
+}
+const slotButton = document.createElement("button");
+slotButton.id = "hslots"; slotButton.onclick = showSlots;
+$("play").insertAdjacentElement("afterend", slotButton);
+$("hrst").textContent = "Réinitialiser cet emplacement";
+updateSlotHome();
+if (!slotStorage) saveWarning();
 
 /** Affiche le registre depuis l’accueil. */
 $("hreg").onclick = () => ov(regH("") + "<button data-a='hback'>Retour</button>");
