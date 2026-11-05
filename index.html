@@ -896,19 +896,20 @@ function validProgress(v) {
 }
 function normalizeProgress(v) {
   const out = Object.assign(emptyProgress(), v);
-  if (out.v2 !== 3) {
+  if (v.v2 !== 3 || "day" in v || "loop" in v) {
     out.v2 = 3; delete out.day; delete out.loop;
     if (out.main.includes("FIN-008")) out.bo = false;
   }
   return out;
 }
 let slotStorage = true, activeSlot = 1, slotStarted = false;
-const slots = Array(6).fill(null);
+const slots = Array(6).fill(null), slotSnapshots = Array(6).fill(null);
 try {
   const selected = Number(localStorage.getItem(SLOT_ACTIVE));
   if (Number.isInteger(selected) && selected >= 1 && selected <= 6) activeSlot = selected;
   for (let n = 1; n <= 6; n++) {
     const raw = localStorage.getItem(SLOT_PREFIX + n);
+    slotSnapshots[n - 1] = raw;
     if (raw !== null) {
       try {
         const r = JSON.parse(raw);
@@ -918,18 +919,21 @@ try {
   }
   // Copier une seule fois l’ancienne sauvegarde, sans jamais l’effacer. Ne pas
   // écraser un profil 1 déjà occupé, même si les anciennes données sont illisibles.
-  if (!localStorage.getItem(SLOT_MIGRATED)) {
+  if (!localStorage.getItem(SLOT_MIGRATED) || (!slots[0] && localStorage.getItem("avo1") !== null)) {
     const legacy = localStorage.getItem("avo1");
     if (legacy !== null && !slots[0]) {
       let parsed;
       try { parsed = JSON.parse(legacy); } catch (e) { parsed = null; }
       if (validProgress(parsed)) {
         slots[0] = { version: 1, started: true, progress: normalizeProgress(parsed), updated: new Date().toISOString() };
-        try { localStorage.setItem(SLOT_PREFIX + "1", JSON.stringify(slots[0])); }
-        catch (e) { slotStorage = false; }
+        try {
+          const raw = JSON.stringify(slots[0]);
+          localStorage.setItem(SLOT_PREFIX + "1", raw);
+          slotSnapshots[0] = raw;
+        } catch (e) { slotStorage = false; }
       } else slots[0] = { corrupt: true };
     }
-    if (!slots[0] || !slots[0].corrupt) localStorage.setItem(SLOT_MIGRATED, "1");
+    if (slotStorage && (!slots[0] || !slots[0].corrupt)) localStorage.setItem(SLOT_MIGRATED, "1");
   }
   const probe = SLOT_PREFIX + "probe";
   localStorage.setItem(probe, "1"); localStorage.removeItem(probe);
@@ -937,25 +941,48 @@ try {
 let SV = slots[activeSlot - 1] && !slots[activeSlot - 1].corrupt
   ? normalizeProgress(slots[activeSlot - 1].progress) : emptyProgress();
 slotStarted = !!(slots[activeSlot - 1] && slots[activeSlot - 1].started);
-function saveWarning() {
+function saveWarning(message = "Sauvegarde indisponible : la progression ne sera pas conservée après fermeture.") {
   let el = document.getElementById("save-warning");
   if (!el) {
     el = document.createElement("div"); el.id = "save-warning"; el.setAttribute("role", "alert");
     el.style.cssText = "position:fixed;z-index:40;top:0;left:0;right:0;padding:8px;background:#7c241e;color:white;text-align:center;font:14px sans-serif";
     document.body.appendChild(el);
   }
-  el.textContent = "Sauvegarde indisponible : la progression ne sera pas conservée après fermeture.";
+  el.textContent = message;
 }
-/** Sauvegarde automatique dans le profil actif ; n’écrase jamais une entrée illisible. */
-const save = () => {
-  if (slots[activeSlot - 1] && slots[activeSlot - 1].corrupt) return;
-  const record = { version: 1, started: slotStarted, progress: JSON.parse(JSON.stringify(SV)), updated: new Date().toISOString() };
-  slots[activeSlot - 1] = record;
-  if (slotStorage) {
-    try { localStorage.setItem(SLOT_PREFIX + activeSlot, JSON.stringify(record)); }
-    catch (e) { slotStorage = false; }
-  }
-  if (!slotStorage) saveWarning();
+/** Fusionne les fins d’un autre onglet sans écraser une progression déjà enregistrée. */
+function mergeProgress(local, remote) {
+  const out = normalizeProgress(local), other = normalizeProgress(remote);
+  out.main = [...new Set([...other.main, ...out.main])];
+  out.bonus = [...new Set([...other.bonus, ...out.bonus])];
+  out.gone = !!(out.gone || other.gone);
+  out.bo = out.main.includes("FIN-008") ? false : !!(out.bo || other.bo);
+  out.star = other.star || out.star; out.target = other.target || out.target;
+  return out;
+}
+/** Vérifie le stockage avant écriture ; protège les données externes et profils illisibles. */
+const save = (reset = false) => {
+  const index = activeSlot - 1, key = SLOT_PREFIX + activeSlot;
+  if (slots[index] && slots[index].corrupt) return false;
+  if (!slotStorage) { saveWarning(); return false; }
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw !== slotSnapshots[index]) {
+      let external = null;
+      try { external = raw === null ? null : JSON.parse(raw); } catch (e) {}
+      // Un effacement, une réinitialisation concurrente ou un contenu illisible exige un rechargement.
+      if (reset || !external || external.version !== 1 || !validProgress(external.progress) || !external.started) {
+        saveWarning("Cet emplacement a changé dans un autre onglet : ferme les autres onglets et recharge avant de continuer.");
+        return false;
+      }
+      SV = mergeProgress(SV, external.progress); slotStarted = slotStarted || external.started;
+    }
+    const record = { version: 1, started: slotStarted, progress: JSON.parse(JSON.stringify(SV)), updated: new Date().toISOString() };
+    const encoded = JSON.stringify(record);
+    localStorage.setItem(key, encoded);
+    slotSnapshots[index] = encoded; slots[index] = record;
+    return true;
+  } catch (e) { slotStorage = false; saveWarning(); return false; }
 };
 
 /**
@@ -6301,6 +6328,9 @@ function mergeG(g) {
  * la sauvegarde permanente SV.
  */
 function build() {
+  // Les anciens PNJ ne doivent pas garder une collision dans la boutique reconstruite.
+  NP.length = 0;
+  NA = null;
   S = {};
   IRL = [];
   sc.children.slice(3).forEach((c) => sc.remove(c));
@@ -9666,6 +9696,10 @@ function worldPane(face,u,y,ww,wh,o={}) {
   if(o.bars)for(const k of [-.3,0,.3])P(k*ww,0,.03,wh,.03,.075,0x3b3d3f);
   P(0,-.15,ww+.3,.08,.16,.07,o.sill||0xd8d2c4);
   if(o.shutter)for(const k of [-1,1])P(k*(ww/2+.36),-.02,.58,wh+.06,.05,.035,o.shutter);
+  // Montants et linteaux en relief : le vitrage paraît en retrait dans la façade.
+  for(const k of [-1,1]) P(k*(ww/2+.07),-.08,.14,wh+.24,.16,.105,frame);
+  P(0,wh+.02,ww+.28,.14,.16,.105,frame);
+  P(0,-.16,ww+.34,.10,.25,.12,o.sill||0xd8d2c4);
 }
 /** Répartit régulièrement des fenêtres sur une façade, étage par étage, entre deux bornes. */
 function worldWindows(face,u0,u1,levels,o={}) {
@@ -9856,10 +9890,25 @@ function worldTownBase(mini=false) {
   for(const lot of CITY_SPEC.lots) worldBuilding(lot,mini?"mini":"city");
 }
 
+/** Chaînages d’angle, soubassement et joints pour donner de l’épaisseur aux bâtiments. */
+function worldFacadeRelief(lot) {
+  const {x,z,w,d,h}=lot, faces=worldFaces(x,z,w,d);
+  for(const f of Object.values(faces)) {
+    const length=f.u1-f.u0, center=(f.u0+f.u1)/2;
+    worldFaceBox(f,center,0,length,.22,.20,.09,0x92897b);
+    worldFaceBox(f,center,h-.20,length,.16,.22,.10,0xe3ddcf);
+    for(const u of [f.u0+.16,f.u1-.16]) {
+      worldFaceBox(f,u,.22,.20,h-.42,.20,.10,0xc2b7a6);
+      for(let y=.6;y<h-.5;y+=.65) worldFaceBox(f,u,y,.23,.025,.21,.11,0x9e9485);
+    }
+  }
+}
+
 /** Bâtiments : volumes, toitures et détails de façade selon leur usage dans le jeu. */
 function worldBuilding(lot,mode="city") {
   const {x,z,w,d,h,color,id}=lot,mini=mode==="mini",f=worldFaces(x,z,w,d);
   wbx("stucco",w,h,d,x,0,z,color,{s:mode==="city"});
+  if(!mini && mode==="city") worldFacadeRelief(lot);
   if(id==="shop"||id==="colis"||id==="poste") worldRoofFlat(x,z,w,d,h,id==="colis"?0xa9aca9:0xcfc6b5);
   else if(id==="passage") worldRoofGable(x,z,w,d,h,2.6,0xa4573d,color,true);
   else worldRoofHip(x,z,w,d,h,id==="archives"?2.4:2.2,id==="archives"?0x625f5a:0xa95c40);
@@ -9881,7 +9930,16 @@ function worldBuilding(lot,mode="city") {
       worldSign([""],xx,1.8,zf+.105,5.6,2.3,0,"plate",worldVitrinePaint("books"),"vitrine-livres");
       bx(5.8,.08,.08,xx,2.95,zf+.13,0x2b2016); bx(5.9,.1,.26,xx,.55,zf+.17,0x2b2016);
       for(const k of [-1.87,1.87]) bx(.07,2.3,.07,xx+k,.65,zf+.135,0x2b2016);
+      // Encadrement en volume et auvent : la vitrine est en retrait dans le mur.
+      for(const k of [-1,1]) bx(.14,2.55,.28,xx+k*2.9,.52,zf+.19,0x463023);
+      bx(5.98,.14,.30,xx,.48,zf+.20,0x674b32);
+      bx(5.98,.14,.30,xx,2.95,zf+.20,0x463023);
+      cbx(6.0,.1,.72,xx,3.02,zf+.38,0x59412e,{b:.025,rx:-.12});
+      for(const k of [-2.55,0,2.55]) {bx(.08,.28,.48,xx+k,2.72,zf+.32,0x624932);}
     }
+    // Descente d’eau et bandeaux maçonnés aux angles de la devanture.
+    for(const xx of [-9.55,9.55]) {bx(.13,4.2,.13,xx,0,zf+.12,0x6f7374);bx(.2,.12,.2,xx,.15,zf+.14,0x595e5e);}
+    cbx(1.95,.12,.52,0,2.28,zf+.29,0x503b2a,{b:.02});
     bx(10.9,.66,.05,x,3.05,zf+.125,0x2b2016);
     worldSign(["LIBRAIRIE · CADEAUX"],x,3.38,zf+.153,10.6,.56,0,"shop");
     worldPlate(["LIBRAIRIE","Lun.–sam. · 9 h – 19 h"],1.75,1.55,zf+.106,0,"white",.11);
@@ -10023,7 +10081,37 @@ function worldOutskirts(northOnly=false) {
     row("x",s*47,-s,-35.6,-26.5); row("x",s*47,-s,9.5,18.5);
   }
   row("z",47,-1,-19.5,-10.5); row("z",47,-1,10.5,19.5);
-  for(const [bx_,bz,along,angle] of [[-32.9,-31,"z",Math.PI/2],[32.9,-31,"z",-Math.PI/2],[-32.9,14,"z",Math.PI/2],[32.9,14,"z",-Math.PI/2],[-15,34.8,"x",Math.PI],[15,34.8,"x",Math.PI]]) worldBarrier(bx_,bz,along,angle);
+}
+
+/** Limites visibles et solides : murs de béton, piliers, fils et pointes barbelées. */
+function worldPerimeter() {
+  const wall=(axis,at,half)=>{
+    const L=half*2, alongX=axis==="x", color=0xaaa59a;
+    if(alongX) wbx("stucco",L,4.2,.32,0,0,at,color,{s:1});
+    else wbx("stucco",.32,4.2,L,at,0,0,color,{s:1});
+    // Faces superposées, bandes de soubassement et couvertines volumétriques.
+    for(let u=-half+2;u<half;u+=4) {
+      const x=alongX?u:at,z=alongX?at:u;
+      if(alongX) {bx(3.94,.7,.035,x,.16,z-Math.sign(at)*.18,0x9a958b);bx(.12,4.22,.43,x-1.97,0,z,0x8e8b84);}
+      else {bx(.035,.7,3.94,x-Math.sign(at)*.18,.16,z,0x9a958b);bx(.43,4.22,.12,x,0,z-1.97,0x8e8b84);}
+    }
+    if(alongX) bx(L,.18,.53,0,4.2,at,0xc0bab0); else bx(.53,.18,L,at,4.2,0,0xc0bab0);
+    for(let u=-half+1;u<=half-1;u+=3) {
+      const x=alongX?u:at,z=alongX?at:u;
+      bx(.08,.86,.08,x,4.32,z,0x555a58);
+    }
+    for(const y of [4.58,4.87,5.16]) {
+      if(alongX) bx(L,.025,.025,0,y,at,0x555a58); else bx(.025,.025,L,at,y,0,0x555a58);
+      // Barbes croisées autour des fils, visibles de près sans gêner la circulation.
+      for(let u=-half+1;u<half;u+=1.5) {
+        const x=alongX?u:at,z=alongX?at:u;
+        if(alongX) {shopStick(x-.09,y-.09,z,x+.09,y+.09,z,.012,0x555a58);shopStick(x-.09,y+.09,z,x+.09,y-.09,z,.012,0x555a58);}
+        else {shopStick(x,y-.09,z-.09,x,y+.09,z+.09,.012,0x555a58);shopStick(x,y+.09,z-.09,x,y-.09,z+.09,.012,0x555a58);}
+      }
+    }
+  };
+  wall("x",-34.45,32.45); wall("x",34.45,32.45);
+  wall("z",-32.45,34.45); wall("z",32.45,34.45);
 }
 
 /** La maquette emploie le même plan de bâtiments et les mêmes rues que la ville. */
@@ -10046,7 +10134,12 @@ function worldMiniature(x,z,scale,stand=true) {
 /** Quartier extérieur : rues bordées, quatre repères, deux accès narratifs et une place. */
 function bWorldCity() {
   const s=mkS("ville",rect(-32.3,32.3,-34.3,34.3),0xc9dbe3,[32,68]);
-  worldTownBase(); worldOutskirts();
+  worldTownBase(); worldOutskirts(); worldPerimeter();
+  // Les murs et le portail du décor de cour doivent être solides côté ville aussi.
+  for (const x of [-10,10]) solidBox(.25,9,x,-22.5);
+  for (const [a,b] of [[-10,-1.24],[1.24,2.0],[6.8,10]]) solidBox(b-a,.25,(a+b)/2,-27);
+  for (const x of [-1.03,1.03,2.1,6.7]) solidBox(.42,.45,x,-27);
+  solidBox(4.4,.07,4.4,-27);
   worldDoor("Portail de la cour",0,-27.14,"z",0x3d4042,()=>go("cour",0,-4.1,Math.PI),{face:-1,wall:-27.125,frame:null,handle:0x2a2b2c});
   worldPlate("ACCÈS PERSONNEL",-2.6,1.75,-27.131,Math.PI,"white",.16);
   worldPlate(["SORTIE DE VÉHICULES","STATIONNEMENT INTERDIT"],4.4,1.45,-27.058,Math.PI,"white",.13);
@@ -10894,7 +10987,7 @@ function worldCityActivities(){
     ["Petite annonce",8.6,28,0x79705d,"Une feuille est épinglée sur un présentoir.","Lire l’annonce","Objet perdu : un souvenir du premier jour de travail.","Lire au dos","Une main a écrit : « Regarde les détails. »"]
   ];
   for(const [name,x,z,color,intro,a,ar,b,br] of entries){
-    const m=cbx(.52,1.15,.34,x,0,z,color,{b:.035});
+    const m=cbx(.52,1.15,.34,x,0,z,color,{s:1,b:.035});
     const character={nm:name,sp:0};
     const open=()=>dlg(character,intro,[[a,()=>dlg(character,ar,[["Autre choix",open],["Continuer",resume]])],[b,()=>dlg(character,br,[["Autre choix",open],["Continuer",resume]])],["Continuer",resume]]);
     it(m,name,open);
@@ -12004,7 +12097,13 @@ ACT.rst = () => {
 };
 ACT.rstn = () => (rFrom === "home" ? hideOv() : ov(menuH()));
 ACT.rsty = () => {
-  SV = emptyProgress(); slotStarted = false; save();
+  const oldProgress = SV, oldStarted = slotStarted;
+  SV = emptyProgress(); slotStarted = false;
+  if (!save(true)) {
+    SV = oldProgress; slotStarted = oldStarted;
+    ov("<h1>Réinitialisation impossible</h1><p>La sauvegarde n’a pas été effacée. Vérifie le stockage et ferme les autres onglets avant de réessayer.</p><button data-a='rstn'>Retour</button>");
+    return;
+  }
   finalM = false; silent = false;
   ov("<h1 style='font-size:28px'>Emplacement réinitialisé</h1><p>Les autres sauvegardes sont intactes.</p><button data-a='rstgo'>Recommencer</button>");
 };
@@ -12748,33 +12847,10 @@ function use() {
 // 11 · CLAVIER, SOURIS ET TACTILE
 // ============================================================================
 
-/**
- * 11 — Commandes. KM traduit les codes physiques des touches de déplacement. kk() combine
- * ces codes avec le caractère de la touche pour gérer les claviers WASD et ZQSD sans
- * doubler certaines directions.
- */
-const KM = {
-  KeyW: "w",
-  KeyA: "a",
-  KeyS: "s",
-  KeyD: "d",
-  ArrowUp: "arrowup",
-  ArrowDown: "arrowdown",
-  ArrowLeft: "arrowleft",
-  ArrowRight: "arrowright",
-  Space: " ",
-};
-
-/**
- * Renvoie la clé de touche utilisée dans keys. Les touches de mouvement reconnues par code
- * sont traitées une seule fois ; les autres, comme e, f et z/q, utilisent leur caractère
- * en minuscules.
- */
-const kk = (e) => {
-  if (KM[e.code]) return KM[e.code];
-  const k = (e.key || "").toLowerCase();
-  return k === "w" || k === "a" || k === "s" || k === "d" ? "" : k;
-};
+/** 11 — Commandes. Le caractère affiché par le clavier est utilisé pour que
+ * les touches personnalisées correspondent aux claviers AZERTY comme QWERTY.
+ * Les raccourcis par défaut acceptent ZQSD et WASD. */
+const kk = (e) => (e.key || "").toLowerCase();
 
 /**
  * Appui clavier : valide le code sur Entrée, mémorise les déplacements, déclenche
